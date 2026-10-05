@@ -412,7 +412,8 @@ def test_periodic_maintenance_is_fail_closed():
     assert "NOVA_TRAFFIC_GATE closed" in maint
     assert "reopen-after-boot" in maint
     assert "systemctl reboot" in maint
-    assert "verify-leaks.sh" in maint
+    assert "reopen-verified.sh" in maint
+    assert "verify-leaks.sh" in post or "reopen-verified.sh" in post
     assert "NOVA_TRAFFIC_GATE open" in post
     for timer in ("nova-release-update.timer", "nova-maintenance.timer", "nova-cleanup.timer"):
         assert timer in auto
