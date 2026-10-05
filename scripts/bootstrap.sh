@@ -20,8 +20,8 @@ source /etc/os-release
 apt-get update
 apt-get install -y --no-install-recommends \
   ca-certificates curl jq gnupg openssl python3 \
-  nftables unbound dns-root-data \
-  openssh-server qrencode zram-tools \
+  nftables unbound dns-root-data bind9-dnsutils \
+  openssh-server qrencode zram-tools age \
   "linux-headers-$(uname -r)"
 
 mkdir -p "$NOVA_ETC" "$NOVA_STATE" "$NOVA_RUN" "$NOVA_INSTALL_ROOT"
