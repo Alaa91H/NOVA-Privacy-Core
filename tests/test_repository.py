@@ -582,6 +582,12 @@ def test_github_cli_attestation_path_is_official_and_pinned():
     assert "Package: gh" in helper
     assert "Pin-Priority: 700" in helper
     assert "gh attestation verify --help" in helper
+    assert "gh_attestation_help=" in helper
+    assert "gh_attestation_help=" in bootstrap
+    assert "gh_attestation_help=" in smoke
+    for text in (helper, bootstrap, smoke):
+        assert "attestation verify --help 2>/dev/null | grep" not in text
+        assert "attestation verify --help | grep" not in text
     assert "scripts/install-github-cli.sh" in smoke
     assert " gh " not in smoke.split("apt-get install", 1)[1].splitlines()[1] if "apt-get install" in smoke else True
 
