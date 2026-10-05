@@ -411,6 +411,7 @@ def test_periodic_maintenance_is_fail_closed():
     assert "DPkg::Lock::Timeout=600" in maint
     assert "NOVA_TRAFFIC_GATE closed" in maint
     assert "reopen-after-boot" in maint
+    assert "install-github-cli.sh" in maint
     assert "systemctl reboot" in maint
     assert "reopen-verified.sh" in maint
     assert "reopen-verified.sh" in post
