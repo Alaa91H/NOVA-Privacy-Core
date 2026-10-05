@@ -49,7 +49,11 @@ restored="$tmpdir/extracted/etc/nova-privacy"
 [[ -s "$restored/nova.env" ]] || die "backup is missing nova.env"
 [[ -s "$restored/keys/server.key" ]] || die "backup is missing server private key"
 
-systemctl stop nova-adguard-private.service nova-adguard-strict.service nova-awg.service 2>/dev/null || true
+# Recovery is always fail-closed, even if the source server was OPEN.
+write_runtime_kv NOVA_TRAFFIC_GATE closed
+NOVA_TRAFFIC_GATE=closed "$ROOT/scripts/render-firewall.sh" 2>/dev/null || true
+
+systemctl stop   nova-adguard-private.service   nova-adguard-strict.service   nova-awg.service 2>/dev/null || true
 
 if [[ -d "$NOVA_ETC" ]]; then
   mv "$NOVA_ETC" "$old"
@@ -60,22 +64,49 @@ chown root:nova-dns "$NOVA_ETC"
 chmod 0710 "$NOVA_ETC"
 
 rollback() {
+  warn "restore failed; restoring previous configuration with traffic CLOSED"
   rm -rf "$NOVA_ETC"
   [[ -d "$old" ]] && mv "$old" "$NOVA_ETC"
-  systemctl start nova-awg.service nova-adguard-private.service nova-adguard-strict.service 2>/dev/null || true
+  if [[ -r "$NOVA_ETC/nova.env" ]]; then
+    write_runtime_kv NOVA_TRAFFIC_GATE closed
+  fi
+  NOVA_TRAFFIC_GATE=closed "$ROOT/scripts/render-firewall.sh" >/dev/null 2>&1 || true
+  systemctl start     nova-awg.service     nova-adguard-private.service     nova-adguard-strict.service 2>/dev/null || true
 }
 trap rollback ERR
 
-# Reload restored root-owned runtime settings and reconstruct generated state.
+# Reload restored policy/preferences, then overwrite host-specific runtime facts
+# with facts from the new recovery host.
 # shellcheck disable=SC1091
 source "$NOVA_ETC/nova.env"
+write_runtime_kv NOVA_TRAFFIC_GATE closed
+write_runtime_kv NOVA_BOOTSTRAP_SSH_CIDR ""
+write_runtime_kv NOVA_OS_BASELINE "ubuntu-26.04"
+if is_oci_host; then
+  write_runtime_kv NOVA_PLATFORM "oci"
+  write_runtime_kv NOVA_KERNEL_TRACK "linux-oracle"
+else
+  write_runtime_kv NOVA_PLATFORM "generic"
+  write_runtime_kv NOVA_KERNEL_TRACK "linux-generic"
+fi
+load_runtime
+
+# Reconstruct host-bound components from trusted current source.  Never trust
+# a backed-up binary hash/version over what is installed and probed now.
+bash "$ROOT/scripts/install-awg.sh"
 bash "$ROOT/scripts/configure-awg.sh" "${NOVA_AWG_MODE:-balanced}"
 bash "$ROOT/scripts/rebuild-awg-peers.sh"
+bash "$ROOT/scripts/configure-memory.sh"
 bash "$ROOT/scripts/install-dns.sh"
 bash "$ROOT/scripts/install-doh-guard.sh"
-bash "$ROOT/scripts/render-firewall.sh"
+bash "$ROOT/scripts/install-automation.sh"
+NOVA_TRAFFIC_GATE=closed bash "$ROOT/scripts/render-firewall.sh"
+
 "$ROOT/src/privacyctl" health
+"$ROOT/scripts/live-acceptance.sh" preflight
+"$ROOT/scripts/verify-leaks.sh"
 
 rm -rf "$old"
 trap - ERR
-log "restore completed and health checks passed"
+log "restore reconstructed successfully with protected forwarding CLOSED"
+log "connect a management peer, then run: privacyctl activate"
