@@ -46,6 +46,10 @@ table inet nova {
     ip protocol icmp accept
     ip6 nexthdr ipv6-icmp accept
 
+    # DHCP lease renewal on cloud/VPS networks.  The reply may arrive before
+    # conntrack has a useful state after boot, so keep this explicit.
+    iifname "@@WAN_IF@@" udp sport 67 udp dport 68 accept
+
     iifname "@@WAN_IF@@" udp dport @@AWG_PORT@@ accept
 @@BOOTSTRAP_SSH_RULE@@
 
@@ -79,6 +83,11 @@ table inet nova {
     ip protocol icmp accept
     ip6 nexthdr ipv6-icmp accept
 
+    # Keep the cloud interface alive under a default-drop OUTPUT policy.
+    oifname "@@WAN_IF@@" udp sport 68 udp dport 67 accept
+
+    # Minimal host egress required for recursive DNS, NTP, package/security
+    # downloads, release verification and HTTPS APIs.
     udp dport { 53, 123, 443 } accept
     tcp dport { 53, 80, 443 } accept
   }
