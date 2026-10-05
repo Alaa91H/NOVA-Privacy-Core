@@ -138,7 +138,48 @@ require_cmd awg-quick
 target_go="$(resolve_awg_go_version)"
 [[ -n "$target_go" ]] || die "could not resolve a stable AmneziaWG-go v3.1 tag"
 
-GOBIN="$build_dir/bin" GOPROXY="https://proxy.golang.org" GOSUMDB="sum.golang.org" GOTOOLCHAIN="local" GOMAXPROCS=1 GOFLAGS="-trimpath -buildvcs=false -p=1"   go install "github.com/amnezia-vpn/amneziawg-go/v3@$target_go"
+go_version="$(go env GOVERSION 2>/dev/null || true)"
+python3 - "$go_version" <<'PY'
+import re,sys
+m=re.fullmatch(r"go(\d+)\.(\d+)(?:\.\d+)?", sys.argv[1])
+if not m or tuple(map(int, m.groups())) < (1,25):
+    raise SystemExit(f"Go >= 1.25 is required by current amneziawg-go v3; found {sys.argv[1]!r}")
+PY
+
+module="github.com/amnezia-vpn/amneziawg-go/v3@$target_go"
+download_json="$(
+  GOPROXY="https://proxy.golang.org" \
+  GOSUMDB="sum.golang.org" \
+  GOTOOLCHAIN="local" \
+    go mod download -json "$module"
+)"
+module_dir="$(jq -er '.Dir' <<<"$download_json")"
+module_sum="$(jq -er '.Sum' <<<"$download_json")"
+go_mod_sum="$(jq -er '.GoModSum' <<<"$download_json")"
+[[ -d "$module_dir" && "$module_sum" == h1:* && "$go_mod_sum" == h1:* ]] ||
+  die "Go checksum-backed AmneziaWG module download is incomplete"
+
+mkdir -p "$build_dir/src" "$build_dir/bin"
+cp -a "$module_dir/." "$build_dir/src/"
+
+# Upstream generates version.go from git in its Makefile; module-proxy source
+# carries a placeholder. Generate the already selected/verified semantic tag
+# only in the ephemeral build tree.
+cat >"$build_dir/src/version.go" <<EOF
+package main
+
+const Version = "$target_go"
+EOF
+
+(
+  cd "$build_dir/src"
+  GOPROXY="https://proxy.golang.org" \
+  GOSUMDB="sum.golang.org" \
+  GOTOOLCHAIN="local" \
+  GOMAXPROCS=1 \
+  GOFLAGS="-trimpath -buildvcs=false -p=1" \
+    go build -o "$build_dir/bin/amneziawg-go" .
+)
 
 [[ -x "$build_dir/bin/amneziawg-go" ]] || die "AmneziaWG-go build produced no binary"
 new_report="$("$build_dir/bin/amneziawg-go" --version 2>/dev/null | awk 'NR==1{print $2}')"
@@ -155,6 +196,8 @@ new_tools="$(dpkg-query -W -f='${Version}' amneziawg-tools 2>/dev/null || echo u
 write_runtime_kv NOVA_AWG_BACKEND "userspace"
 write_runtime_kv NOVA_AWG_GO_INSTALLED_VERSION "$target_go"
 write_runtime_kv NOVA_AWG_GO_SHA256 "$new_hash"
+write_runtime_kv NOVA_AWG_GO_MODULE_SUM "$module_sum"
+write_runtime_kv NOVA_AWG_GO_MOD_SUM "$go_mod_sum"
 write_runtime_kv NOVA_AWG_TOOLS_PACKAGE_VERSION "$new_tools"
 
 if ip link show "$NOVA_VPN_IF" >/dev/null 2>&1 &&
@@ -168,4 +211,4 @@ if ip link show "$NOVA_VPN_IF" >/dev/null 2>&1 &&
   warn "AWG userspace/tools changed while tunnel is active; reboot required before reopening protected forwarding"
 fi
 
-log "AmneziaWG userspace path verified: go=$target_go tools=$new_tools sha256=$new_hash"
+log "AmneziaWG userspace path verified: go=$target_go tools=$new_tools sha256=$new_hash module-sum=$module_sum"
