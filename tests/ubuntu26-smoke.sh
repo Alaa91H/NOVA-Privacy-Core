@@ -2,7 +2,8 @@
 set -Eeuo pipefail
 umask 077
 
-ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+SOURCE_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$SOURCE_ROOT"
 cd "$ROOT"
 
 if [[ ${EUID:-$(id -u)} -ne 0 ]]; then
