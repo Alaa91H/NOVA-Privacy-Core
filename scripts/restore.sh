@@ -7,6 +7,7 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/scripts/lib/common.sh"
 require_root
 load_runtime
+acquire_nova_lock
 require_cmd age
 require_cmd python3
 
@@ -71,6 +72,7 @@ source "$NOVA_ETC/nova.env"
 bash "$ROOT/scripts/configure-awg.sh" "${NOVA_AWG_MODE:-balanced}"
 bash "$ROOT/scripts/rebuild-awg-peers.sh"
 bash "$ROOT/scripts/install-dns.sh"
+bash "$ROOT/scripts/install-doh-guard.sh"
 bash "$ROOT/scripts/render-firewall.sh"
 "$ROOT/src/privacyctl" health
 
