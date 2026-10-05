@@ -7,6 +7,7 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/scripts/lib/common.sh"
 require_root
 load_runtime
+acquire_nova_lock
 require_cmd age
 require_cmd tar
 
