@@ -93,6 +93,19 @@ cat >/etc/apt/sources.list.d/nova-amnezia.list <<'EOF'
 deb [signed-by=/etc/apt/keyrings/amnezia.gpg] https://ppa.launchpadcontent.net/amnezia/ppa/ubuntu focal main
 EOF
 
+# Constrain the third-party repository to the exact package family NOVA needs.
+# Even a correctly signed PPA must not be allowed to override unrelated Debian
+# security/base packages.
+cat >/etc/apt/preferences.d/nova-amnezia <<'EOF'
+Package: *
+Pin: release o=LP-PPA-amnezia
+Pin-Priority: 1
+
+Package: amneziawg amneziawg-tools amneziawg-dkms
+Pin: release o=LP-PPA-amnezia
+Pin-Priority: 700
+EOF
+
 apt-get update
 candidate="$(apt-cache policy amneziawg 2>/dev/null | awk '/Candidate:/{print $2; exit}')"
 [[ -n "$candidate" && "$candidate" != "(none)" ]] ||
@@ -122,5 +135,13 @@ if ! probe_awg31; then
   die "installed AmneziaWG failed 3.1 capability probe (disk=$module_disk loaded=$module_loaded); do not deploy incompatible 3.1 parameters"
 fi
 
+tools_version="$(dpkg-query -W -f='${Version}' amneziawg-tools 2>/dev/null || echo unknown)"
+meta_version="$(dpkg-query -W -f='${Version}' amneziawg 2>/dev/null || echo unknown)"
+dkms_version="$(dpkg-query -W -f='${Version}' amneziawg-dkms 2>/dev/null || echo unavailable)"
+write_runtime_kv NOVA_AWG_TOOLS_PACKAGE_VERSION "$tools_version"
+write_runtime_kv NOVA_AWG_META_PACKAGE_VERSION "$meta_version"
+write_runtime_kv NOVA_AWG_DKMS_PACKAGE_VERSION "$dkms_version"
+
 log "AmneziaWG 3.1 capability probe passed"
+log "recorded package versions: tools=$tools_version meta=$meta_version dkms=$dkms_version"
 awg --version || true
