@@ -10,6 +10,8 @@ load_runtime
 
 require_cmd curl
 require_cmd gpg
+require_cmd htpasswd
+require_cmd openssl
 require_cmd python3
 require_cmd unbound-checkconf
 id nova-dns >/dev/null 2>&1 || die "nova-dns user missing; run bootstrap first"
@@ -17,9 +19,29 @@ id nova-dns >/dev/null 2>&1 || die "nova-dns user missing; run bootstrap first"
 vpn_ip="${NOVA_VPN_ADDR%/*}"
 mgmt_ip="${NOVA_MGMT_ADDR%/*}"
 
-mkdir -p "$NOVA_ETC/unbound" "$NOVA_ETC/adguard" "$NOVA_STATE/dns/private" "$NOVA_STATE/dns/strict"
-chown -R nova-dns:nova-dns "$NOVA_STATE/dns"
-chmod 0700 "$NOVA_STATE/dns/private" "$NOVA_STATE/dns/strict"
+install -d -m 0700 "$NOVA_ETC/unbound"
+install -d -o root -g nova-dns -m 0750 "$NOVA_ETC/adguard"
+install -d -m 0755 "$NOVA_STATE/dns"
+install -d -o nova-dns -g nova-dns -m 0700 "$NOVA_STATE/dns/private" "$NOVA_STATE/dns/strict"
+
+# nova-dns gets traverse-only access to the NOVA configuration root.  Secret
+# subdirectories such as keys/ and peer-secrets/ remain root-only.
+chown root:nova-dns "$NOVA_ETC"
+chmod 0710 "$NOVA_ETC"
+
+admin_secret="$NOVA_ETC/adguard/admin.password"
+if [[ ! -s "$admin_secret" ]]; then
+  openssl rand -base64 36 | tr -d '\n' >"$admin_secret"
+  printf '\n' >>"$admin_secret"
+fi
+chown root:root "$admin_secret"
+chmod 0600 "$admin_secret"
+
+admin_hash="$(
+  htpasswd -bnBC 12 "" "$(tr -d '\n' <"$admin_secret")" |
+    tr -d ':\n'
+)"
+[[ "$admin_hash" =~ ^\$2[aby]\$[0-9]{2}\$ ]] || die "failed to generate bcrypt admin hash"
 
 export VPN_IP="$vpn_ip"
 export MGMT_IP="$mgmt_ip"
@@ -127,8 +149,10 @@ render_profile() {
   export VPN_IP="$vpn_ip" MGMT_IP="$mgmt_ip" DNS_PORT="$dns_port" UI_PORT="$ui_port"
   export UNBOUND_PORT="$NOVA_UNBOUND_PORT" MAIN_FILTER="$main_filter" TIF_FILTER="$NOVA_HAGEZI_TIF_MINI"
   export DOH_FILTER="$NOVA_HAGEZI_DOH_ONLY" DOH_FILTER_ENABLED="$doh_enabled"
+  export ADMIN_HASH="$admin_hash"
   python3 "$ROOT/scripts/render-template.py" "$ROOT/config/adguard/profile.yaml.in" "$cfg"
-  chmod 0644 "$cfg"
+  chown root:nova-dns "$cfg"
+  chmod 0640 "$cfg"
 
   "$agh" --check-config -c "$cfg" -w "$work"
 
@@ -149,3 +173,4 @@ systemctl is-active --quiet nova-adguard-private.service || die "private AdGuard
 systemctl is-active --quiet nova-adguard-strict.service || die "strict AdGuard failed to start"
 
 log "DNS stack installed, checksummed, signature-verified and validated"
+log "AdGuard admin password is root-only at $admin_secret"
