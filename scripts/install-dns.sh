@@ -120,12 +120,13 @@ agh=/usr/local/lib/nova-adguard/AdGuardHome
 "$agh" --version
 
 render_profile() {
-  local profile="$1" dns_port="$2" ui_port="$3" main_filter="$4"
+  local profile="$1" dns_port="$2" ui_port="$3" main_filter="$4" doh_enabled="$5"
   local cfg="$NOVA_ETC/adguard/${profile}.yaml"
   local work="$NOVA_STATE/dns/${profile}"
 
   export VPN_IP="$vpn_ip" MGMT_IP="$mgmt_ip" DNS_PORT="$dns_port" UI_PORT="$ui_port"
   export UNBOUND_PORT="$NOVA_UNBOUND_PORT" MAIN_FILTER="$main_filter" TIF_FILTER="$NOVA_HAGEZI_TIF_MINI"
+  export DOH_FILTER="$NOVA_HAGEZI_DOH_ONLY" DOH_FILTER_ENABLED="$doh_enabled"
   python3 "$ROOT/scripts/render-template.py" "$ROOT/config/adguard/profile.yaml.in" "$cfg"
   chmod 0644 "$cfg"
 
@@ -136,8 +137,8 @@ render_profile() {
   chmod 0644 "/etc/systemd/system/nova-adguard-${profile}.service"
 }
 
-render_profile private "$NOVA_ADGUARD_PRIVATE_PORT" "$NOVA_ADGUARD_PRIVATE_UI" "$NOVA_HAGEZI_PRO_MINI"
-render_profile strict "$NOVA_ADGUARD_STRICT_PORT" "$NOVA_ADGUARD_STRICT_UI" "$NOVA_HAGEZI_ULTIMATE_MINI"
+render_profile private "$NOVA_ADGUARD_PRIVATE_PORT" "$NOVA_ADGUARD_PRIVATE_UI" "$NOVA_HAGEZI_PRO_MINI" false
+render_profile strict "$NOVA_ADGUARD_STRICT_PORT" "$NOVA_ADGUARD_STRICT_UI" "$NOVA_HAGEZI_ULTIMATE_MINI" true
 
 systemctl daemon-reload
 systemctl enable --now unbound.service
