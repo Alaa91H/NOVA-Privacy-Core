@@ -9,6 +9,19 @@ require_root
 load_runtime
 require_cmd ip
 
+mark_reboot_if_awg_module_changed() {
+  local disk loaded
+  disk="$(modinfo -F version amneziawg 2>/dev/null || true)"
+  loaded="$(cat /sys/module/amneziawg/version 2>/dev/null || true)"
+  if [[ -n "$disk" && -n "$loaded" && "$disk" != "$loaded" ]]; then
+    touch /var/run/reboot-required
+    printf 'amneziawg\n' >/var/run/reboot-required.pkgs
+    warn "AmneziaWG module on disk ($disk) differs from loaded module ($loaded); reboot required with traffic gate closed"
+    return 0
+  fi
+  return 1
+}
+
 probe_awg31() (
   set -Eeuo pipefail
   command -v awg >/dev/null 2>&1 || exit 1
@@ -53,6 +66,7 @@ EOF
 if command -v awg >/dev/null 2>&1 && modinfo amneziawg >/dev/null 2>&1; then
   modprobe amneziawg || true
   if probe_awg31; then
+    mark_reboot_if_awg_module_changed || true
     log "compatible AmneziaWG 3.1 tool/module path already available"
     awg --version || true
     exit 0
@@ -88,13 +102,15 @@ done
 gpg --batch --dearmor --yes -o /etc/apt/keyrings/amnezia.gpg "$tmp_key"
 chmod 0644 /etc/apt/keyrings/amnezia.gpg
 
-# This is the Debian installation path documented by upstream Amnezia.
+# Upstream does not currently publish an Ubuntu 26.04 "resolute" suite.
+# Use its signed focal binary/DKMS PPA as an explicitly constrained compatibility
+# source, then require a real kernel/tool 3.1 capability probe before proceeding.
 cat >/etc/apt/sources.list.d/nova-amnezia.list <<'EOF'
 deb [signed-by=/etc/apt/keyrings/amnezia.gpg] https://ppa.launchpadcontent.net/amnezia/ppa/ubuntu focal main
 EOF
 
 # Constrain the third-party repository to the exact package family NOVA needs.
-# Even a correctly signed PPA must not be allowed to override unrelated Debian
+# Even a correctly signed PPA must not be allowed to override unrelated Ubuntu
 # security/base packages.
 cat >/etc/apt/preferences.d/nova-amnezia <<'EOF'
 Package: *
@@ -128,6 +144,8 @@ modprobe amneziawg
 modinfo amneziawg >/dev/null
 require_cmd awg
 require_cmd awg-quick
+
+mark_reboot_if_awg_module_changed || true
 
 if ! probe_awg31; then
   module_disk="$(modinfo -F version amneziawg 2>/dev/null || echo unknown)"
