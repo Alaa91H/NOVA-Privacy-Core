@@ -1,36 +1,52 @@
 # Verification
 
-## Server-side
-
-Before the management peer is established:
+## Pre-activation server checks
 
 ```bash
 sudo privacyctl acceptance preflight
 sudo privacyctl health
 sudo privacyctl leaks test
 sudo privacyctl firewall check
+sudo privacyctl gate status
 ```
 
-After a management peer has a recent handshake and `sudo privacyctl lockdown` succeeds:
+The gate must report `closed` before first production activation.
+
+## Production activation
+
+After a management peer has a recent handshake:
 
 ```bash
+sudo privacyctl activate
+sudo privacyctl gate status
 sudo privacyctl acceptance server
 sudo privacyctl leaks test
 ```
 
-The checks cover:
+The final state must show `open` and no temporary public SSH firewall rule.
 
-- fail-closed nftables chain policies;
-- AWG interface availability;
-- IPv4 forwarding only after firewall activation;
-- disabled/fail-closed IPv6 in the default profile;
-- no wildcard-public sensitive DNS/admin listeners;
+## Covered server invariants
+
+- Ubuntu 26.04 LTS production baseline;
+- expected Canonical kernel track;
+- no pending reboot;
+- synchronized clock;
+- AppArmor enabled;
+- zram + optional encrypted swap;
+- fail-closed nftables input/forward/output;
+- explicit deployment traffic gate;
+- AWG userspace interface;
+- IPv4 forwarding only behind the firewall;
+- fail-closed IPv6;
+- no wildcard-sensitive DNS/admin listeners;
 - Unbound and both AdGuard profiles;
 - disabled AdGuard query history;
-- STRICT encrypted-DNS IP guard and refresh timer;
-- private-key/secret file modes;
-- SSH password/root-login policy;
-- volatile-journal evidence where available.
+- STRICT encrypted-DNS bypass guard;
+- root-only secret modes;
+- root/password SSH disabled;
+- hybrid OpenSSH KEX;
+- release/system/cleanup timers;
+- independent Ubuntu package-upgrade timer disabled.
 
 ## Client-side
 
@@ -41,11 +57,7 @@ sudo NOVA_EXPECTED_IF=awg0 NOVA_DNS_IP=10.77.0.1 \
   ./clients/linux/verify-nova.sh
 ```
 
-Use the actual interface name if the client differs.
-
 ### Windows
-
-From an elevated PowerShell:
 
 ```powershell
 .\clients\windows\Test-NOVAPrivacy.ps1 -ExpectedDns 10.77.0.1 -ExpectedAdapter "<NOVA adapter>"
@@ -55,25 +67,35 @@ From an elevated PowerShell:
 
 Follow [clients/android/ACCEPTANCE.md](../clients/android/ACCEPTANCE.md), including **Always-on VPN** and **Block connections without VPN**.
 
-The client verifiers intentionally avoid contacting a third-party public-IP service automatically. Verify visible exit IP only against a destination you explicitly trust.
+The client verifiers intentionally do not contact an arbitrary third-party public-IP endpoint automatically.
+
+## Automatic-maintenance verification
+
+Inspect timer state:
+
+```bash
+systemctl list-timers 'nova-*'
+sudo privacyctl status
+```
+
+Run controlled manual cycles on a test node:
+
+```bash
+sudo privacyctl update system
+sudo privacyctl update release
+sudo privacyctl cleanup run
+```
+
+Verify that package/application changes cannot occur through `apt-daily-upgrade.timer` outside NOVA's maintenance gate.
 
 ## Failure injection
 
-Inspect first:
-
 ```bash
 sudo privacyctl failure-injection dry-run
-```
-
-With Oracle Console/serial/out-of-band recovery available:
-
-```bash
 sudo NOVA_OOB_CONFIRMED=1 privacyctl failure-injection execute
 ```
 
-The automated portion validates DNS service fail-closed behavior. AWG-stop and reboot tests require simultaneous physical-client observation and are intentionally not executed blindly by a remote script.
-
-A protected endpoint must never gain a direct-Internet path when the protected service fails.
+A protected endpoint must never gain a direct Internet path when the protected service fails.
 
 ## Optional privacy features
 
@@ -81,6 +103,6 @@ A protected endpoint must never gain a direct-Internet path when the protected s
 sudo privacyctl features probe
 ```
 
-Binary presence is **not** acceptance. MASQUE, PQ/TLS, ECH, Tor and Nym remain gated until real path/handshake evidence exists.
+Binary presence is **not** acceptance. Do not label optional transports or PQ/TLS accepted without actual negotiated/path evidence.
 
-Do not upload identifying DNS/IP test results to the public repository.
+Do not upload identifying DNS/IP test results, peer configs, keys, PSKs, or host metadata to the public repository.
