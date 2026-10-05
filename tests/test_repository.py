@@ -251,6 +251,25 @@ def test_optional_features_fail_closed():
     assert "NOVA_FEATURE_MASQUE=disabled" in features
     assert "NOVA_FEATURE_HYSTERIA2=disabled" in features
 
+
+def test_live_acceptance_tooling():
+    ctl = read("src/privacyctl")
+    live = read("scripts/live-acceptance.sh")
+    inject = read("scripts/failure-injection.sh")
+    probe = read("scripts/probe-features.sh")
+    docs = read("docs/LIVE_VALIDATION.md")
+
+    assert "acceptance preflight|server|report" in ctl
+    assert "failure-injection dry-run|execute" in ctl
+    assert "features probe" in ctl
+    assert "firewall input/forward/output default DROP" in live
+    assert "physical-client" in live.lower()
+    assert "NOVA_OOB_CONFIRMED" in inject
+    assert "does not automatically stop AWG" in inject
+    assert "X25519MLKEM768" in probe
+    assert "MASQUE" in probe
+    assert "Release gate" in docs
+
 def test_version():
     version = read("VERSION").strip()
     assert re.fullmatch(r"\d+\.\d+\.\d+", version), version
@@ -280,6 +299,7 @@ def main():
         test_firewall_service_starts_immediately,
         test_ipv6_block_is_verified,
         test_optional_features_fail_closed,
+        test_live_acceptance_tooling,
         test_version,
     ]
     for test in tests:
