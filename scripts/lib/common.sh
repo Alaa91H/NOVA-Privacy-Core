@@ -142,8 +142,12 @@ load_peer_registry() {
   (( (8#$perm & 077) == 0 )) || die "peer registry must not be group/world accessible: $file"
 
   unset PEER_NAME PEER_IP PEER_PROFILE PEER_MANAGEMENT PEER_PUBLIC_KEY PEER_PSK_FILE
-  while IFS='=' read -r key value; do
-    [[ -n "$key" ]] || continue
+  local line
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -n "$line" ]] || continue
+    [[ "$line" == *=* ]] || die "invalid peer registry line in $file"
+    key="${line%%=*}"
+    value="${line#*=}"
     [[ "$key" =~ ^[A-Z_]+$ ]] || die "invalid peer registry key syntax in $file"
     case "$key" in
       NAME) PEER_NAME="$value" ;;
