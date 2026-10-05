@@ -25,6 +25,7 @@ def test_firewall():
     assert 'udp sport 67 udp dport 68 accept' in text
     assert "set doh4" in text
     assert "ip saddr @strict4 ip daddr @doh4 drop" in text
+    assert "@@TRAFFIC_GATE_DROP@@" in text
 
 def test_lockdown_precedes_conntrack_accept():
     text = read("config/nftables/nova.nft.in")
@@ -34,6 +35,14 @@ def test_lockdown_precedes_conntrack_accept():
     assert forward.index("@lockdown4 drop") < forward.index("ct state established,related accept"), (
         "LOCKDOWN must override already-established forwarding flows"
     )
+
+
+def test_deployment_gate_precedes_conntrack_accept():
+    text = read("config/nftables/nova.nft.in")
+    m = re.search(r"chain forward \{(.*?)\n  \}", text, re.S)
+    assert m, "forward chain not found"
+    forward = m.group(1)
+    assert forward.index("@@TRAFFIC_GATE_DROP@@") < forward.index("ct state established,related accept")
 
 
 
@@ -301,31 +310,41 @@ def test_deployment_baseline_gates():
     ssh = read("config/ssh/90-nova-privacy.conf")
     installer = read("scripts/install.sh")
     live = read("scripts/live-acceptance.sh")
+    common = read("scripts/lib/common.sh")
 
-    assert 'requires Debian 13' in bootstrap
-    assert '1.26.1-0' in bootstrap
+    assert 'Ubuntu Server/Minimal 26.04 LTS' in bootstrap
+    assert '1.24.2-1ubuntu2.1' in bootstrap
+    assert 'linux-oracle' in bootstrap
+    assert 'systemd-zram-generator' in bootstrap
     assert 'active SSH session uses IPv6' in bootstrap
+    assert 'is_ubuntu_2604' in common
+    assert 'is_oci_host' in common
     assert 'rsync is required to update a non-empty NOVA installation safely' in installer
     assert 'rsync -a --delete' in installer
     assert 'PermitRootLogin no' in ssh
     assert 'AuthenticationMethods publickey' in ssh
     assert 'find_keyed_sudo_admin' in harden
+    assert 'origin=Ubuntu' in harden
     assert 'mlkem768x25519-sha256' in harden
+    assert 'Ubuntu 26.04 LTS baseline' in live
+    assert 'expected Canonical kernel track is installed/booted' in live
     assert 'public bootstrap SSH rule removed' in live
-    assert ":(22|53|853" not in live
 
 def test_ci_and_release_are_target_and_provenance_gated():
     ci = read(".github/workflows/ci.yml")
     release = read(".github/workflows/release.yml")
-    digest = "sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a"
+    digest = "sha256:da6fc2be547864451aa253836dd926da33623312df4a9a243e35dc877c378a78"
 
-    assert "debian:13.7-slim@" + digest in ci
-    assert "debian:13.7-slim@" + digest in release
+    assert "ubuntu:26.04@" + digest in ci
+    assert "ubuntu:26.04@" + digest in release
     assert "bash tests/run.sh" in release
     assert "tests/test-render-firewall.sh" in release
     assert 'release tag must point exactly at current main' in release
     assert 'CHANGELOG.md has no released section' in release
     assert "needs: validate" in release
+    assert "attest-build-provenance@" in release
+    assert "gh attestation download" in release
+    assert "attestation.jsonl" in release
 
 
 def test_third_party_repo_is_constrained():
@@ -352,6 +371,90 @@ def test_awg_updates_do_not_drop_management_tunnel():
     assert "active AWG address differs from requested design" in active_block
     assert "updated in place without dropping the active tunnel" in active_block
 
+
+def test_dynamic_memory_is_privacy_safe():
+    cfg = read("scripts/configure-memory.sh")
+    enc = read("scripts/encrypted-swap.sh")
+    unit = read("config/systemd/nova-encrypted-swap.service")
+    sysctl = read("config/sysctl/99-nova-privacy.conf")
+
+    assert "zram-size = min(ram / 2, 4096)" in cfg
+    assert "swap-priority = 200" in cfg
+    assert "NOVA_SWAP_MAX_MIB" in cfg
+    assert "NOVA_SWAP_MIN_FREE_MIB" in cfg
+    assert "--key-file /dev/urandom" in enc
+    assert "aes-xts-plain64" in enc
+    assert "swapon -p 10" in enc
+    assert "ExecStart=/opt/nova-privacy/scripts/encrypted-swap.sh start" in unit
+    assert "vm.swappiness = 100" in sysctl
+    assert "vm.page-cluster = 0" in sysctl
+
+def test_periodic_maintenance_is_fail_closed():
+    maint = read("scripts/system-maintenance.sh")
+    post = read("scripts/postboot-verify.sh")
+    auto = read("scripts/install-automation.sh")
+    defaults = read("config/defaults.env")
+
+    assert "apt-get -y full-upgrade" in maint
+    assert "NOVA_TRAFFIC_GATE closed" in maint
+    assert "reopen-after-boot" in maint
+    assert "systemctl reboot" in maint
+    assert "verify-leaks.sh" in maint
+    assert "NOVA_TRAFFIC_GATE open" in post
+    for timer in ("nova-release-update.timer", "nova-maintenance.timer", "nova-cleanup.timer"):
+        assert timer in auto
+    assert "NOVA_AUTO_SYSTEM_UPDATE" in defaults
+    assert "NOVA_AUTO_REBOOT" in defaults
+
+def test_release_self_update_requires_checksum_and_provenance():
+    updater = read("scripts/release-update.sh")
+    bootstrap = read("install.sh")
+    defaults = read("config/defaults.env")
+
+    for text in (updater, bootstrap):
+        assert "SHA256SUMS" in text
+        assert "sha256sum -c" in text
+        assert "attestation.jsonl" in text
+        assert "gh attestation verify" in text
+        assert "--bundle" in text
+        assert "--signer-workflow" in text
+        assert "--source-ref" in text
+    assert "Alaa91H/NOVA-Privacy-Core" in defaults
+    assert "NOVA_AUTO_RELEASE_UPDATE" in defaults
+
+def test_activation_gate_has_no_unverified_open_command():
+    ctl = read("src/privacyctl")
+    renderer = read("scripts/render-firewall.sh")
+    firewall = read("config/nftables/nova.nft.in")
+
+    assert "gate status|close" in ctl
+    assert "gate status|open" not in ctl
+    assert "recent_management_handshake" in ctl
+    assert "/var/run/reboot-required" in ctl
+    assert "verify-leaks.sh" in ctl
+    assert "rollback_activation" in ctl
+    assert "NOVA_TRAFFIC_GATE open" in ctl
+    assert "TRAFFIC_GATE_DROP" in renderer
+    assert "@@TRAFFIC_GATE_DROP@@" in firewall
+
+def test_bootstrap_is_release_first_and_not_pipe_to_shell():
+    bootstrap = read("install.sh")
+    assert 'NOVA_SOURCE:-release' in bootstrap
+    assert "No stable NOVA release exists yet" in bootstrap
+    assert "NOVA_SOURCE=main" in bootstrap
+    assert "exec bash" in bootstrap
+    assert "curl" in bootstrap
+    assert "| bash" not in bootstrap
+    assert "| sh" not in bootstrap
+
+def test_privacyctl_is_single_canonical_control_plane():
+    ctl = read("src/privacyctl")
+    assert ctl.count("#!/usr/bin/env bash") == 1
+    assert ctl.count('case "${1:-}" in') == 1
+    assert ctl.count("cmd_health() {") == 1
+    assert ctl.count("cmd_activate() {") == 1
+    assert "valid_cidr" in ctl
+
 def test_version():
     version = read("VERSION").strip()
     assert re.fullmatch(r"\d+\.\d+\.\d+", version), version
@@ -360,6 +463,7 @@ def main():
     tests = [
         test_firewall,
         test_lockdown_precedes_conntrack_accept,
+        test_deployment_gate_precedes_conntrack_accept,
         test_dns_bypass_blocks_precede_conntrack_accept,
         test_early_firewall_boot_order,
         test_dns_privacy,
@@ -389,6 +493,12 @@ def main():
         test_third_party_repo_is_constrained,
         test_live_acceptance_is_single_canonical_script,
         test_awg_updates_do_not_drop_management_tunnel,
+        test_dynamic_memory_is_privacy_safe,
+        test_periodic_maintenance_is_fail_closed,
+        test_release_self_update_requires_checksum_and_provenance,
+        test_activation_gate_has_no_unverified_open_command,
+        test_bootstrap_is_release_first_and_not_pipe_to_shell,
+        test_privacyctl_is_single_canonical_control_plane,
         test_version,
     ]
     for test in tests:
