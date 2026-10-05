@@ -33,17 +33,21 @@ reopen_gate() {
   log "maintenance verification passed; protected forwarding reopened"
 }
 
+export DEBIAN_FRONTEND=noninteractive
+
+# Refresh metadata before closing user forwarding.  If mirrors/network are
+# unavailable, abort without disrupting currently accepted protected traffic.
+apt-get -o DPkg::Lock::Timeout=600 update
+
 close_gate
 trap 'warn "maintenance failed; traffic gate remains CLOSED"' ERR
 
-export DEBIAN_FRONTEND=noninteractive
-apt-get update
-apt-get -y full-upgrade
+apt-get -o DPkg::Lock::Timeout=600 -y full-upgrade
 
 if is_oci_host; then
-  apt-get install -y --no-install-recommends linux-oracle linux-headers-oracle
+  apt-get -o DPkg::Lock::Timeout=600 install -y --no-install-recommends linux-oracle linux-headers-oracle
 else
-  apt-get install -y --no-install-recommends linux-generic linux-headers-generic
+  apt-get -o DPkg::Lock::Timeout=600 install -y --no-install-recommends linux-generic linux-headers-generic
 fi
 
 # Refresh application components through their own verification paths.
