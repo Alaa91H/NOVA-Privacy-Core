@@ -240,6 +240,17 @@ def test_ipv6_block_is_verified():
     assert "net.ipv6.conf.all.disable_ipv6" in leak
     assert "net.ipv6.conf.default.disable_ipv6" in leak
 
+
+def test_optional_features_fail_closed():
+    gates = read("scripts/feature-gates.sh")
+    features = read("config/features.env")
+    assert "require_feature_binary" in gates
+    assert "NOVA_FEATURE_NAIVE" in gates
+    assert "TOR-ANON must remain client-originated" in gates
+    assert "MAX-MIX must remain client-originated" in gates
+    assert "NOVA_FEATURE_MASQUE=disabled" in features
+    assert "NOVA_FEATURE_HYSTERIA2=disabled" in features
+
 def test_version():
     version = read("VERSION").strip()
     assert re.fullmatch(r"\d+\.\d+\.\d+", version), version
@@ -268,6 +279,7 @@ def main():
         test_awg31_is_capability_probed,
         test_firewall_service_starts_immediately,
         test_ipv6_block_is_verified,
+        test_optional_features_fail_closed,
         test_version,
     ]
     for test in tests:
