@@ -316,6 +316,15 @@ def test_ci_and_release_are_target_and_provenance_gated():
     assert 'CHANGELOG.md has no released section' in release
     assert "needs: validate" in release
 
+
+def test_third_party_repo_is_constrained():
+    installer = read("scripts/install-awg.sh")
+    assert "Pin: release o=LP-PPA-amnezia" in installer
+    assert "Pin-Priority: 1" in installer
+    assert "Package: amneziawg amneziawg-tools amneziawg-dkms" in installer
+    assert "NOVA_AWG_TOOLS_PACKAGE_VERSION" in installer
+    assert "NOVA_AWG_DKMS_PACKAGE_VERSION" in installer
+
 def test_version():
     version = read("VERSION").strip()
     assert re.fullmatch(r"\d+\.\d+\.\d+", version), version
@@ -349,6 +358,7 @@ def main():
         test_client_acceptance_assets,
         test_deployment_baseline_gates,
         test_ci_and_release_are_target_and_provenance_gated,
+        test_third_party_repo_is_constrained,
         test_version,
     ]
     for test in tests:
