@@ -44,6 +44,7 @@ sudo privacyctl status
 sudo privacyctl peer add phone PRIVATE
 sudo privacyctl peer add laptop PRIVATE --management
 sudo privacyctl leaks test
+sudo privacyctl acceptance server
 ```
 
 ## Important limitation
@@ -59,6 +60,7 @@ When `PRIVATE`/`STRICT` exits directly from Oracle, destination sites see an Ora
 - [Deployment](docs/DEPLOYMENT.md)
 - [Verification](docs/VERIFICATION.md)
 - [Roadmap](docs/ROADMAP.md)
+- [Live validation](docs/LIVE_VALIDATION.md)
 
 ## Status
 

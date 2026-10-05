@@ -30,6 +30,9 @@ Commands:
   leaks test
   backup [OUTPUT]
   restore FILE
+  acceptance preflight|server|report
+  failure-injection dry-run|execute
+  features probe
   update check
   version
 EOF
@@ -247,6 +250,23 @@ EOF
     ;;
   restore)
     exec "$ROOT/scripts/restore.sh" "${2:-}"
+    ;;
+  acceptance)
+    case "${2:-}" in
+      preflight|server|report) exec "$ROOT/scripts/live-acceptance.sh" "$2" ;;
+      *) usage; exit 2 ;;
+    esac
+    ;;
+  failure-injection)
+    case "${2:-}" in
+      dry-run) exec "$ROOT/scripts/failure-injection.sh" --dry-run ;;
+      execute) exec "$ROOT/scripts/failure-injection.sh" --execute ;;
+      *) usage; exit 2 ;;
+    esac
+    ;;
+  features)
+    [[ "${2:-}" == "probe" ]] || { usage; exit 2; }
+    exec "$ROOT/scripts/probe-features.sh"
     ;;
   update)
     [[ "${2:-}" == "check" ]] || { usage; exit 2; }
