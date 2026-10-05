@@ -1,0 +1,44 @@
+server:
+    interface: 127.0.0.1
+    interface: @@VPN_IP@@
+    interface: @@MGMT_IP@@
+    port: @@UNBOUND_PORT@@
+
+    access-control: 127.0.0.0/8 allow
+    access-control: @@VPN_NET@@ allow
+    access-control: @@MGMT_NET@@ allow
+    access-control: 0.0.0.0/0 refuse
+
+    do-ip4: yes
+    do-ip6: no
+    do-udp: yes
+    do-tcp: yes
+
+    root-hints: "/usr/share/dns/root.hints"
+    auto-trust-anchor-file: "/var/lib/unbound/root.key"
+
+    qname-minimisation: yes
+    aggressive-nsec: yes
+    minimal-responses: yes
+    harden-glue: yes
+    harden-dnssec-stripped: yes
+    harden-below-nxdomain: yes
+    hide-identity: yes
+    hide-version: yes
+
+    edns-buffer-size: 1232
+    prefetch: yes
+    prefetch-key: yes
+    serve-expired: yes
+    serve-expired-ttl: 86400
+
+    rrset-cache-size: 64m
+    msg-cache-size: 32m
+    num-threads: 1
+
+    verbosity: 1
+    logfile: ""
+    use-syslog: yes
+
+remote-control:
+    control-enable: no
