@@ -55,7 +55,8 @@ if [[ -d "$NOVA_ETC" ]]; then
 fi
 install -d -m 0700 "$(dirname "$NOVA_ETC")"
 cp -a "$restored" "$NOVA_ETC"
-chmod 0700 "$NOVA_ETC"
+chown root:nova-dns "$NOVA_ETC"
+chmod 0710 "$NOVA_ETC"
 
 rollback() {
   rm -rf "$NOVA_ETC"
