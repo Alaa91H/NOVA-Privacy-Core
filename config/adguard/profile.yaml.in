@@ -41,6 +41,10 @@ filters:
     url: @@TIF_FILTER@@
     name: NOVA TIF Mini
     id: 1002
+  - enabled: @@DOH_FILTER_ENABLED@@
+    url: @@DOH_FILTER@@
+    name: NOVA Encrypted DNS Bypass
+    id: 1003
 
 whitelist_filters: []
 user_rules: []
