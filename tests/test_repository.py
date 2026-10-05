@@ -558,6 +558,30 @@ def test_restore_is_always_fail_closed_and_host_revalidated():
     assert "install-automation.sh" in restore
     assert "live-acceptance.sh" in restore
     assert "privacyctl activate" in restore
+
+def test_github_cli_attestation_path_is_official_and_pinned():
+    helper = read("scripts/install-github-cli.sh")
+    bootstrap = read("install.sh")
+    defaults = read("config/defaults.env")
+    smoke = read("tests/ubuntu26-smoke.sh")
+
+    expected_hash = "6084d5d7bd8e288441e0e94fc6275570895da18e6751f70f057485dc2d1a811b"
+    expected_fpr1 = "2C6106201985B60E6C7AC87323F3D4EA75716059"
+    expected_fpr2 = "7F38BBB59D064DBCB3D84D725612B36462313325"
+
+    for text in (helper, bootstrap, defaults):
+        assert expected_hash in text
+        assert expected_fpr1 in text
+        assert expected_fpr2 in text
+
+    assert "https://cli.github.com/packages" in helper
+    assert "Pin: origin cli.github.com" in helper
+    assert "Package: gh" in helper
+    assert "Pin-Priority: 700" in helper
+    assert "gh attestation verify --help" in helper
+    assert "scripts/install-github-cli.sh" in smoke
+    assert " gh " not in smoke.split("apt-get install", 1)[1].splitlines()[1] if "apt-get install" in smoke else True
+
 def test_version():
     version = read("VERSION").strip()
     assert re.fullmatch(r"\d+\.\d+\.\d+", version), version
@@ -608,6 +632,7 @@ def main():
         test_peer_registry_is_data_only,
         test_peer_registry_preserves_base64_padding,
         test_restore_is_always_fail_closed_and_host_revalidated,
+        test_github_cli_attestation_path_is_official_and_pinned,
         test_version,
     ]
     for test in tests:
