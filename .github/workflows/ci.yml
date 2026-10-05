@@ -19,7 +19,7 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -39,7 +39,7 @@ jobs:
         run: |
           docker run --rm             -v "$PWD:/src:ro"             debian:13.7-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a             bash -Eeuo pipefail -c '
               apt-get update
-              apt-get install -y --no-install-recommends bash git shellcheck nftables python3 ca-certificates
+              apt-get install -y --no-install-recommends                 bash git shellcheck nftables python3 ca-certificates
               mkdir -p /work
               cp -a /src/. /work/
               cd /work
@@ -48,5 +48,15 @@ jobs:
             '
 
       - name: Validate no generated secret paths are tracked
+        shell: bash
         run: |
-          ! git ls-files | grep -E '(^|/)(peer-exports|secrets)/|\.(key|psk|p12|pfx)
+          set -Eeuo pipefail
+          tracked="$(
+            git ls-files |
+              grep -E '(^|/)(peer-exports|secrets)/|\.(key|psk|p12|pfx|agekey)$|\.tar\.age$' ||
+              true
+          )"
+          if [[ -n "$tracked" ]]; then
+            printf 'Tracked secret/generated paths:\n%s\n' "$tracked" >&2
+            exit 1
+          fi
