@@ -1,0 +1,13 @@
+[Unit]
+Description=NOVA Privacy Core atomic firewall
+After=network-pre.target
+Before=network-online.target nova-awg.service
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/nova-privacy/scripts/render-firewall.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
