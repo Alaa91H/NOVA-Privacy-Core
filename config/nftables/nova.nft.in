@@ -40,6 +40,7 @@ table inet nova {
     type filter hook input priority filter; policy drop;
 
     ct state invalid drop
+    iifname "@@VPN_IF@@" ip saddr @lockdown4 drop
     ct state established,related accept
     iifname "lo" accept
 
@@ -53,7 +54,6 @@ table inet nova {
     iifname "@@WAN_IF@@" udp dport @@AWG_PORT@@ accept
 @@BOOTSTRAP_SSH_RULE@@
 
-    iifname "@@VPN_IF@@" ip saddr @lockdown4 drop
     iifname "@@VPN_IF@@" ip saddr { @@VPN_NET@@, @@MGMT_NET@@ } udp dport { @@PRIVATE_DNS_PORT@@, @@STRICT_DNS_PORT@@, @@UNBOUND_PORT@@ } accept
     iifname "@@VPN_IF@@" ip saddr { @@VPN_NET@@, @@MGMT_NET@@ } tcp dport { @@PRIVATE_DNS_PORT@@, @@STRICT_DNS_PORT@@, @@UNBOUND_PORT@@ } accept
 
@@ -64,9 +64,8 @@ table inet nova {
     type filter hook forward priority filter; policy drop;
 
     ct state invalid drop
-    ct state established,related accept
-
     iifname "@@VPN_IF@@" ip saddr @lockdown4 drop
+    ct state established,related accept
     iifname "@@VPN_IF@@" ip saddr { @@VPN_NET@@, @@MGMT_NET@@ } tcp dport 853 drop
     iifname "@@VPN_IF@@" ip saddr { @@VPN_NET@@, @@MGMT_NET@@ } udp dport 853 drop
 
