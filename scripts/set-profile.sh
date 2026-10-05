@@ -18,9 +18,7 @@ valid_profile "$profile" || die "invalid profile"
 peer="$(peer_path "$name")"
 [[ -f "$peer" ]] || die "peer not found: $name"
 
-MANAGEMENT=0
-# shellcheck disable=SC1090
-source "$peer"
+load_peer_registry "$peer"
 if [[ "$profile" == "LOCKDOWN" && "${MANAGEMENT:-0}" == "1" ]]; then
   die "management peers cannot be placed in LOCKDOWN; revoke management access explicitly instead"
 fi
