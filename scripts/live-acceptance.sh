@@ -99,7 +99,7 @@ firewall_ok() {
 traffic_gate_open() {
   [[ "${NOVA_TRAFFIC_GATE:-closed}" == "open" ]] &&
     ! nft list chain inet nova forward 2>/dev/null |
-      grep -Fq 'ip saddr { 10.77.0.0/24, 10.77.10.0/24 } drop'
+      grep -Fq 'NOVA_TRAFFIC_GATE_CLOSED'
 }
 
 no_public_sensitive_ports() {
