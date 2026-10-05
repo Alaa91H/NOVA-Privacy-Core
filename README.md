@@ -29,7 +29,7 @@ It targets a single Oracle-class VM with roughly **1 vCPU / 1 GB RAM**, with And
 
 ## Quick deployment
 
-> Keep the original SSH session open until verification succeeds.
+> Production baseline: Debian 13, IPv4 SSH bootstrap, and a non-root SSH-keyed user with sudo access. Keep the original SSH session open until verification succeeds.
 
 ```bash
 git clone https://github.com/Alaa91H/NOVA-Privacy-Core.git
@@ -61,6 +61,7 @@ When `PRIVATE`/`STRICT` exits directly from Oracle, destination sites see an Ora
 - [Verification](docs/VERIFICATION.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Live validation](docs/LIVE_VALIDATION.md)
+- [Deployment readiness](docs/DEPLOYMENT_READINESS.md)
 
 ## Status
 
