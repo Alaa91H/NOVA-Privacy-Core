@@ -16,6 +16,7 @@ NOVA distinguishes **repository implementation** from **live acceptance**.
 - [x] T09 peer provisioning tooling
 - [x] T10 kill-switch policy
 - [x] T11 IPv6 fail-closed default
+- [ ] T12 network-namespace isolation — live-gated; service/process isolation is implemented, but namespace routing is not enabled without Oracle-host validation
 - [x] T13–T18 DNS/filtering/enforcement implementation
 - [x] T19–T21 client deployment guidance
 - [x] T22 peer lifecycle automation
@@ -37,6 +38,7 @@ These require a target Oracle kernel, external prerequisites, or physical client
 - [ ] T09 first real peer handshake
 - [ ] T10 forced tunnel-failure client verification
 - [ ] T11 physical-client IPv6 leak test
+- [ ] T12 network-namespace routing/isolation validation on the target host
 - [ ] T19 Android lockdown validation
 - [ ] T20 Windows network-change validation
 - [ ] T21 Linux production validation
