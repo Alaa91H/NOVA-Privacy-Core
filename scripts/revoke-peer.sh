@@ -18,7 +18,11 @@ peer="$(peer_path "$name")"
 
 disabled="$peer.disabled"
 mv "$peer" "$disabled"
-restore() { mv -f "$disabled" "$peer" 2>/dev/null || true; }
+restore() {
+  mv -f "$disabled" "$peer" 2>/dev/null || true
+  "$ROOT/scripts/rebuild-awg-peers.sh" >/dev/null 2>&1 || true
+  "$ROOT/scripts/render-firewall.sh" >/dev/null 2>&1 || true
+}
 trap restore ERR
 
 "$ROOT/scripts/rebuild-awg-peers.sh"
