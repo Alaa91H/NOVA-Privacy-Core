@@ -1,0 +1,17 @@
+[Unit]
+Description=NOVA Privacy Core AmneziaWG tunnel
+After=network-online.target
+Wants=network-online.target
+Before=nova-adguard-private.service nova-adguard-strict.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/sbin/modprobe amneziawg
+ExecStart=/usr/bin/awg-quick up @@AWG_CONFIG@@
+ExecStop=/usr/bin/awg-quick down @@AWG_CONFIG@@
+TimeoutStartSec=30
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
