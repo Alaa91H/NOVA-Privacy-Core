@@ -83,13 +83,15 @@ write_client_config() {
   local name="$1" ip="$2" client_private="$3" psk="$4"
   local export_dir="/root/nova-peers"
   local conf="$export_dir/$name.conf"
+  local qr="$export_dir/$name.qr.png"
   local dns_ip="${NOVA_VPN_ADDR%/*}"
-  local server_pub endpoint
+  local server_pub endpoint tmp_conf tmp_qr=""
 
   server_pub="$(cat "$NOVA_ETC/keys/server.pub")"
   endpoint="$(endpoint_with_port)"
 
   install -d -m 0700 "$export_dir"
+  tmp_conf="$(mktemp "$export_dir/.${name}.conf.XXXXXX")"
   {
     cat <<EOF
 [Interface]
@@ -108,12 +110,23 @@ AllowedIPs = 0.0.0.0/0, ::/0
 Endpoint = $endpoint
 PersistentKeepalive = 25
 EOF
-  } >"$conf"
-  chmod 0600 "$conf"
+  } >"$tmp_conf"
+  chmod 0600 "$tmp_conf"
 
   if command -v qrencode >/dev/null 2>&1; then
-    qrencode -o "$export_dir/$name.qr.png" -t PNG <"$conf"
-    chmod 0600 "$export_dir/$name.qr.png"
+    tmp_qr="$(mktemp "$export_dir/.${name}.qr.XXXXXX")"
+    if ! qrencode -o "$tmp_qr" -t PNG <"$tmp_conf"; then
+      rm -f "$tmp_conf" "$tmp_qr"
+      return 1
+    fi
+    chmod 0600 "$tmp_qr"
+  fi
+
+  mv -f "$tmp_conf" "$conf"
+  if [[ -n "$tmp_qr" ]]; then
+    mv -f "$tmp_qr" "$qr"
+  else
+    rm -f "$qr"
   fi
 
   printf '%s\n' "$conf"
