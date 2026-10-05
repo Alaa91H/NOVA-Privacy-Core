@@ -107,6 +107,12 @@ def test_awg_safety():
     assert "HeaderProtectionKey" in cfg
     assert "ContentPaddingAddition" in cfg
     assert "RandomTrailers" in cfg
+    assert "AWG_PARAMS_VERSION=2" in cfg
+    assert "secrets.randbelow" in cfg
+    assert "NOVA_AWG_EXPERIMENTAL_RANDOM_TRAILERS" in cfg
+    assert "AWG_H1=1" not in cfg
+    assert "AWG_H2=2" not in cfg
+    assert "AWG_S1=32" not in cfg
     assert "X25519MLKEM768" in policy
     # CPS I1-I5 values are deliberately not fabricated by NOVA.
     assert not re.search(r"^I[1-5]\s*=", cfg, re.M)
