@@ -37,14 +37,21 @@ cd NOVA-Privacy-Core
 sudo NOVA_WAN_IF=ens3 ./scripts/install.sh
 ```
 
-After installation:
+After installation, verify the host baseline first, then establish the management tunnel before the final production gate:
 
 ```bash
 sudo privacyctl status
-sudo privacyctl peer add phone PRIVATE
+sudo privacyctl acceptance preflight
 sudo privacyctl peer add laptop PRIVATE --management
-sudo privacyctl leaks test
+```
+
+Import `/root/nova-peers/laptop.conf`, connect that peer, confirm a recent handshake, then remove temporary public SSH access and run the final server checks:
+
+```bash
+sudo privacyctl lockdown
 sudo privacyctl acceptance server
+sudo privacyctl leaks test
+sudo privacyctl peer add phone PRIVATE
 ```
 
 ## Important limitation
