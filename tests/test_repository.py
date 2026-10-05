@@ -509,7 +509,7 @@ def test_awg_userspace_integrity_is_a_gate():
     assert "NOVA_AWG_GO_SHA256" in ctl
     assert "NOVA_AWG_GO_INSTALLED_VERSION" in ctl
     assert "sha256sum /usr/local/sbin/amneziawg-go" in ctl
-    assert "AWG userspace SHA-256 mismatch" in ctl
+    assert "AmneziaWG userspace SHA-256 mismatch" in ctl
     assert "awg_userspace_integrity" in live
     assert "AWG userspace version/hash integrity" in live
     assert "write_runtime_kv NOVA_AWG_GO_SHA256" in installer
