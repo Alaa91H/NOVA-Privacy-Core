@@ -1,0 +1,42 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Verify tag matches VERSION
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          expected="v$(cat VERSION)"
+          [[ "$GITHUB_REF_NAME" == "$expected" ]] || {
+            echo "tag $GITHUB_REF_NAME does not match VERSION ($expected)" >&2
+            exit 1
+          }
+
+      - name: Build source release
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          name="NOVA-Privacy-Core-$GITHUB_REF_NAME"
+          mkdir -p dist
+          git archive --format=tar --prefix="$name/" "$GITHUB_SHA" | gzip -n -9 > "dist/$name.tar.gz"
+          sha256sum "dist/$name.tar.gz" > "dist/SHA256SUMS"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME"             dist/*.tar.gz dist/SHA256SUMS             --verify-tag             --generate-notes             --title "NOVA Privacy Core $GITHUB_REF_NAME"
