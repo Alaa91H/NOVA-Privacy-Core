@@ -44,34 +44,46 @@ install -d -m 0755 /etc/systemd/journald.conf.d
 install -m 0644 "$ROOT/config/systemd/90-nova-journald.conf" /etc/systemd/journald.conf.d/90-nova-privacy.conf
 systemctl restart systemd-journald
 
-have_key=0
-if [[ -s /root/.ssh/authorized_keys ]]; then
-  have_key=1
+find_keyed_sudo_admin() {
+  local user uid home shell groups
+  while IFS=: read -r user _ uid _ _ home shell; do
+    [[ "$uid" =~ ^[0-9]+$ ]] || continue
+    (( uid >= 1000 && uid < 65534 )) || continue
+    [[ "$shell" != */nologin && "$shell" != */false ]] || continue
+    [[ -s "$home/.ssh/authorized_keys" ]] || continue
+    groups="$(id -nG "$user" 2>/dev/null || true)"
+    if tr ' ' '\n' <<<"$groups" | grep -qx sudo; then
+      printf '%s\n' "$user"
+      return 0
+    fi
+  done < <(getent passwd)
+  return 1
+}
+
+admin_user="$(find_keyed_sudo_admin || true)"
+[[ -n "$admin_user" ]] ||
+  die "refusing SSH hardening: create a non-root Debian user with authorized_keys and sudo-group access first"
+
+install -d -m 0755 /etc/ssh/sshd_config.d
+install -m 0644 "$ROOT/config/ssh/90-nova-privacy.conf" /etc/ssh/sshd_config.d/90-nova-privacy.conf
+if sshd -t; then
+  systemctl reload ssh || systemctl reload sshd
+  log "SSH hardened: root/password login disabled; recovery admin=$admin_user"
 else
-  while IFS= read -r f; do
-    [[ -s "$f" ]] && have_key=1 && break
-  done < <(find /home -maxdepth 3 -type f -path '*/.ssh/authorized_keys' 2>/dev/null || true)
+  rm -f /etc/ssh/sshd_config.d/90-nova-privacy.conf
+  die "sshd validation failed; hardening file removed"
 fi
 
-if [[ "$have_key" -eq 1 ]]; then
-  install -d -m 0755 /etc/ssh/sshd_config.d
-  install -m 0644 "$ROOT/config/ssh/90-nova-privacy.conf" /etc/ssh/sshd_config.d/90-nova-privacy.conf
-  if sshd -t; then
-    systemctl reload ssh || systemctl reload sshd
-    log "SSH password authentication disabled after key preflight"
-    if sshd -T 2>/dev/null | awk '$1=="kexalgorithms"{print $2}' |
-        tr ',' '\n' | grep -qx 'mlkem768x25519-sha256'; then
-      log "OpenSSH hybrid post-quantum KEX available: mlkem768x25519-sha256"
-    else
-      warn "OpenSSH does not advertise mlkem768x25519-sha256; update OpenSSH before labeling SSH PQ-hybrid"
-    fi
-  else
-    rm -f /etc/ssh/sshd_config.d/90-nova-privacy.conf
-    die "sshd validation failed; hardening file removed"
-  fi
+sshd -T 2>/dev/null | grep -qx 'permitrootlogin no' ||
+  die "effective SSH policy still permits root login"
+sshd -T 2>/dev/null | grep -qx 'passwordauthentication no' ||
+  die "effective SSH policy still permits password authentication"
+
+if sshd -T 2>/dev/null | awk '$1=="kexalgorithms"{print $2}' |
+    tr ',' '\n' | grep -qx 'mlkem768x25519-sha256'; then
+  log "OpenSSH hybrid post-quantum KEX verified: mlkem768x25519-sha256"
 else
-  warn "no authorized_keys file detected; SSH password hardening not applied"
-  warn "install an SSH key, then rerun scripts/harden.sh"
+  die "OpenSSH does not advertise required hybrid PQ KEX mlkem768x25519-sha256"
 fi
 
 # Core dumps are not useful on a privacy gateway unless explicitly debugging.
