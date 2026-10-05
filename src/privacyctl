@@ -201,7 +201,7 @@ cmd_peers() {
   shopt -s nullglob
   for f in "$NOVA_ETC"/peers.d/*.env; do
     load_peer_registry "$f"
-    printf '%-20s %-15s %-12s %-5s\n' "$NAME" "$IP" "$PROFILE" "${MANAGEMENT:-0}"
+    printf '%-20s %-15s %-12s %-5s\n' "$PEER_NAME" "$PEER_IP" "$PEER_PROFILE" "${PEER_MANAGEMENT:-0}"
   done
 }
 
@@ -217,8 +217,8 @@ recent_management_handshake() {
   shopt -s nullglob
   for f in "$NOVA_ETC"/peers.d/*.env; do
     load_peer_registry "$f"
-    if [[ "${MANAGEMENT:-0}" == "1" ]]; then
-      ts="${hs[$PUBLIC_KEY]:-0}"
+    if [[ "${PEER_MANAGEMENT:-0}" == "1" ]]; then
+      ts="${hs[$PEER_PUBLIC_KEY]:-0}"
       if [[ "$ts" =~ ^[0-9]+$ ]] && (( ts > 0 && now - ts <= 300 )); then
         return 0
       fi
