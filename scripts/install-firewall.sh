@@ -24,8 +24,11 @@ fi
 
 install -m 0644 "$ROOT/config/systemd/nova-firewall.service" /etc/systemd/system/nova-firewall.service
 
-# Validate and atomically load before enabling boot persistence.
+# Validate and atomically load before enabling packet forwarding.
 "$ROOT/scripts/render-firewall.sh"
+
+install -m 0644 "$ROOT/config/sysctl/99-nova-routing.conf" /etc/sysctl.d/99-nova-routing.conf
+sysctl -p /etc/sysctl.d/99-nova-routing.conf >/dev/null
 
 systemctl daemon-reload
 systemctl enable nova-firewall.service
