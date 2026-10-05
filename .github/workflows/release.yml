@@ -95,8 +95,31 @@ jobs:
             dist/*.tar.gz
             dist/SHA256SUMS
 
+      - name: Export provenance bundle for tokenless host verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          archive="$(find dist -maxdepth 1 -type f -name '*.tar.gz' -printf '%f\n' | head -n1)"
+          [[ -n "$archive" ]]
+          (
+            cd dist
+            digest="$(sha256sum "$archive" | awk '{print $1}')"
+            gh attestation download "$archive" --repo "$GITHUB_REPOSITORY"
+            bundle="sha256:$digest.jsonl"
+            [[ -s "$bundle" ]]
+            mv "$bundle" "NOVA-Privacy-Core-$GITHUB_REF_NAME.attestation.jsonl"
+          )
+
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME"             dist/*.tar.gz             dist/SHA256SUMS             --verify-tag             --generate-notes             --title "NOVA Privacy Core $GITHUB_REF_NAME"
+          gh release create "$GITHUB_REF_NAME" \
+            dist/*.tar.gz \
+            dist/SHA256SUMS \
+            dist/*.attestation.jsonl \
+            --verify-tag \
+            --generate-notes \
+            --title "NOVA Privacy Core $GITHUB_REF_NAME"
