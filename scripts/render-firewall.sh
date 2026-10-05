@@ -86,7 +86,7 @@ case "${NOVA_TRAFFIC_GATE:-closed}" in
     TRAFFIC_GATE_DROP=""
     ;;
   closed)
-    TRAFFIC_GATE_DROP="    iifname \"${NOVA_VPN_IF}\" ip saddr { ${NOVA_VPN_NET}, ${NOVA_MGMT_NET} } drop comment \"NOVA_TRAFFIC_GATE_CLOSED\""
+    printf -v TRAFFIC_GATE_DROP       '    iifname "%s" ip saddr { %s, %s } drop comment "NOVA_TRAFFIC_GATE_CLOSED"'       "$NOVA_VPN_IF" "$NOVA_VPN_NET" "$NOVA_MGMT_NET"
     ;;
   *)
     die "invalid NOVA_TRAFFIC_GATE=${NOVA_TRAFFIC_GATE:-unset}"
