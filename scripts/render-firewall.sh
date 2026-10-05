@@ -24,9 +24,7 @@ collect_ips() {
   local -a out=()
   shopt -s nullglob
   for f in "$PEER_DIR"/*.env; do
-    unset NAME IP PROFILE MANAGEMENT PUBLIC_KEY
-    # shellcheck disable=SC1090
-    source "$f"
+    load_peer_registry "$f"
     if [[ "$mode" == "profile" && "${PROFILE:-PRIVATE}" == "$wanted" ]]; then
       out+=("$IP")
     elif [[ "$mode" == "management" && "${MANAGEMENT:-0}" == "1" ]]; then
