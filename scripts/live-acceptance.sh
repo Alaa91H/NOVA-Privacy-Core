@@ -124,6 +124,17 @@ awg_interface_ok() {
   ip link show "$NOVA_VPN_IF" >/dev/null 2>&1
 }
 
+awg_userspace_integrity() {
+  [[ "${NOVA_AWG_BACKEND:-}" == "userspace" ]] || return 1
+  [[ -x /usr/local/sbin/amneziawg-go ]] || return 1
+  local actual_hash actual_version
+  actual_hash="$(sha256sum /usr/local/sbin/amneziawg-go | awk '{print $1}')"
+  actual_version="$(/usr/local/sbin/amneziawg-go --version 2>/dev/null | awk 'NR==1{print $2}')"
+  [[ -n "${NOVA_AWG_GO_SHA256:-}" && "$actual_hash" == "$NOVA_AWG_GO_SHA256" ]] &&
+    [[ -n "${NOVA_AWG_GO_INSTALLED_VERSION:-}" &&
+       "$actual_version" == "$NOVA_AWG_GO_INSTALLED_VERSION" ]]
+}
+
 ipv4_forwarding() {
   [[ "$(sysctl -n net.ipv4.ip_forward)" == "1" ]]
 }
@@ -205,6 +216,7 @@ server_checks() {
   run_check "Ubuntu independent package-upgrade timer disabled" independent_upgrader_disabled
   run_check "firewall input/forward/output default DROP" firewall_ok
   run_check "AWG interface exists" awg_interface_ok
+  run_check "AWG userspace version/hash integrity" awg_userspace_integrity
   run_check "IPv4 forwarding enabled after firewall" ipv4_forwarding
   run_check "IPv6 is fail-closed" ipv6_fail_closed
   run_check "protected traffic gate is OPEN" traffic_gate_open
