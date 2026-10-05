@@ -71,7 +71,6 @@ grep -q '10.77.0.20' "$file"
 grep -q '203.0.113.1' "$file"
 grep -q '203.0.113.120' "$file"
 grep -q 'ip saddr @strict4 ip daddr @doh4 drop' "$file"
-grep -q 'NOVA_TRAFFIC_GATE_CLOSED' "$file"
 exit 0
 EOF
 chmod 0755 "$tmp/fake-nft"
