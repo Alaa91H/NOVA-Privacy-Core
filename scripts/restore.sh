@@ -64,8 +64,8 @@ rollback() {
 }
 trap rollback ERR
 
-# Reload restored runtime settings and reconstruct generated service state.
-# shellcheck disable=SC1090
+# Reload restored root-owned runtime settings and reconstruct generated state.
+# shellcheck disable=SC1091
 source "$NOVA_ETC/nova.env"
 bash "$ROOT/scripts/configure-awg.sh" "${NOVA_AWG_MODE:-balanced}"
 bash "$ROOT/scripts/rebuild-awg-peers.sh"
