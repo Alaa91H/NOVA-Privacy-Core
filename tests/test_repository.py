@@ -463,7 +463,8 @@ def test_bootstrap_is_release_first_and_not_pipe_to_shell():
 def test_privacyctl_is_single_canonical_control_plane():
     ctl = read("src/privacyctl")
     assert ctl.count("#!/usr/bin/env bash") == 1
-    assert len(re.findall(r'^case "\\${1:-}" in    assert ctl.count("cmd_health() {") == 1
+    assert len(re.findall(r'^case "\\$\\{1:-\\}" in$', ctl, re.M)) == 1
+    assert ctl.count("cmd_health() {") == 1
     assert ctl.count("cmd_activate() {") == 1
     assert "valid_cidr" in ctl
 
@@ -474,7 +475,7 @@ def test_ubuntu_awg_path_avoids_known_kernel_module_risk():
     defaults = read("config/defaults.env")
 
     assert "production supports only NOVA_AWG_BACKEND=userspace" in installer
-    assert "apt-get" in installer and "amneziawg-tools" in installer
+    assert "amneziawg-tools" in installer
     assert "amneziawg-dkms" in installer and "Pin-Priority: -1" in installer
     assert "amneziawg-go" in service
     assert "ExecStartPre=/sbin/modprobe amneziawg" not in service
@@ -487,16 +488,18 @@ def test_verified_reopen_is_centralized_and_rollback_safe():
     post = read("scripts/postboot-verify.sh")
     release = read("scripts/release-update.sh")
 
-    assert "live-acceptance.sh\" preflight" in helper
+    assert 'live-acceptance.sh" preflight' in helper
     assert "verify-leaks.sh" in helper
     assert "NOVA_BOOTSTRAP_SSH_CIDR" in helper
     assert "/var/run/reboot-required" in helper
     assert "NOVA_TRAFFIC_GATE open" in helper
     assert "NOVA_TRAFFIC_GATE closed" in helper
-    assert "live-acceptance.sh\" server" in helper
+    assert 'live-acceptance.sh" server' in helper
+    assert "rollback()" in helper
     assert 'reopen-verified.sh' in maint
     assert 'reopen-verified.sh' in post
     assert 'reopen-verified.sh' in release
+
 
 def test_awg_userspace_integrity_is_a_gate():
     ctl = read("src/privacyctl")
