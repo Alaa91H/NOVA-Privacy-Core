@@ -69,6 +69,8 @@ check "nft output defaults to DROP" chain_policy_drop output
 check "AWG interface exists" ip link show "$NOVA_VPN_IF"
 check "IPv4 forwarding enabled" test "$(sysctl -n net.ipv4.ip_forward)" = "1"
 check "IPv6 forwarding disabled" test "$(sysctl -n net.ipv6.conf.all.forwarding)" = "0"
+check "IPv6 disabled fail-closed" test "$(sysctl -n net.ipv6.conf.all.disable_ipv6)" = "1"
+check "IPv6 default disabled" test "$(sysctl -n net.ipv6.conf.default.disable_ipv6)" = "1"
 check "sensitive ports are not wildcard-public" no_public_sensitive_listener
 check "Unbound answers through VPN address" unbound_responds
 check "PRIVATE DNS answers" private_dns_responds
