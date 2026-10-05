@@ -7,6 +7,9 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/scripts/lib/common.sh"
 require_root
 load_runtime
+acquire_nova_lock
+require_cmd nft
+require_cmd python3
 
 PEER_DIR="${NOVA_ETC}/peers.d"
 mkdir -p "$PEER_DIR" "${NOVA_ETC}/nftables"
@@ -27,6 +30,36 @@ collect_ips() {
   done
   local IFS=", "
   printf '%s' "${out[*]:-}"
+}
+
+collect_doh_ips() {
+  local file="$NOVA_STATE/doh/doh-ipv4.txt"
+  [[ -s "$file" ]] || return 0
+
+  python3 - "$file" <<'PY'
+import ipaddress
+import pathlib
+import sys
+
+p = pathlib.Path(sys.argv[1])
+out = []
+for n, raw in enumerate(p.read_text(errors="strict").splitlines(), 1):
+    s = raw.strip()
+    if not s or s.startswith("#"):
+        continue
+    try:
+        ip = ipaddress.ip_address(s)
+    except ValueError as exc:
+        raise SystemExit(f"invalid DoH firewall IP at line {n}: {s!r}") from exc
+    if ip.version != 4:
+        raise SystemExit(f"non-IPv4 DoH firewall entry at line {n}: {s!r}")
+    out.append(str(ip))
+
+# Avoid loading a suspicious/truncated set in production once the list exists.
+if out and len(set(out)) < 100:
+    raise SystemExit(f"refusing suspiciously small DoH firewall set: {len(set(out))}")
+print(", ".join(sorted(set(out), key=lambda x: int(ipaddress.ip_address(x)))), end="")
+PY
 }
 
 WAN_IF="${NOVA_WAN_IF}"
@@ -61,6 +94,8 @@ final="${NOVA_ETC}/nftables/nova.nft"
 python3 "$ROOT/scripts/render-template.py" "$ROOT/config/nftables/nova.nft.in" "$candidate"
 chmod 0600 "$candidate"
 
+# nft -c parses the complete transaction without changing the active ruleset.
+# The final nft -f call then replaces NOVA's table in one transaction.
 nft -c -f "$candidate"
 mv -f "$candidate" "$final"
 nft -f "$final"
