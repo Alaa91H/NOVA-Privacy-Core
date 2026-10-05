@@ -270,6 +270,19 @@ def test_live_acceptance_tooling():
     assert "MASQUE" in probe
     assert "Release gate" in docs
 
+
+def test_client_acceptance_assets():
+    linux = read("clients/linux/verify-nova.sh")
+    windows = read("clients/windows/Test-NOVAPrivacy.ps1")
+    android = read("clients/android/ACCEPTANCE.md")
+    assert "NOVA_EXPECTED_IF" in linux
+    assert "does not contact a third-party" in linux
+    assert "Get-NetRoute" in windows
+    assert "Get-DnsClientServerAddress" in windows
+    assert "Always-on VPN" in android
+    assert "Block connections without VPN" in android
+    assert "systemctl stop nova-awg.service" in android
+
 def test_version():
     version = read("VERSION").strip()
     assert re.fullmatch(r"\d+\.\d+\.\d+", version), version
@@ -300,6 +313,7 @@ def main():
         test_ipv6_block_is_verified,
         test_optional_features_fail_closed,
         test_live_acceptance_tooling,
+        test_client_acceptance_assets,
         test_version,
     ]
     for test in tests:
