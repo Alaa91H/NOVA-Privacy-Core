@@ -1,0 +1,12 @@
+[Unit]
+Description=NOVA verified stable-release updater
+After=network-online.target nova-firewall.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/nova-privacy/scripts/release-update.sh
+UMask=0077
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
