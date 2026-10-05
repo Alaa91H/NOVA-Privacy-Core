@@ -21,7 +21,7 @@ apt-get update
 apt-get install -y --no-install-recommends \
   ca-certificates curl jq gnupg openssl python3 \
   nftables unbound dns-root-data bind9-dnsutils \
-  openssh-server qrencode zram-tools age \
+  openssh-server qrencode zram-tools age apache2-utils \
   "linux-headers-$(uname -r)"
 
 mkdir -p "$NOVA_ETC" "$NOVA_STATE" "$NOVA_RUN" "$NOVA_INSTALL_ROOT"
@@ -32,6 +32,12 @@ if ! id nova-dns >/dev/null 2>&1; then
   useradd --system --home-dir /var/lib/nova-privacy/dns --create-home \
     --shell /usr/sbin/nologin nova-dns
 fi
+
+# Allow the DNS service account to traverse only the NOVA config root.  Actual
+# key/peer directories remain root-only; the AdGuard subdirectory is granted
+# separately by install-dns.sh.
+chown root:nova-dns "$NOVA_ETC"
+chmod 0710 "$NOVA_ETC"
 
 wan="${NOVA_WAN_IF:-}"
 [[ -n "$wan" ]] || wan="$(detect_wan_if)"
