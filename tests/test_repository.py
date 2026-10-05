@@ -55,6 +55,12 @@ def test_dns_privacy():
     assert "harden-dnssec-stripped: yes" in unbound
     assert "hide-version: yes" in unbound
     assert "do-ip6: no" in unbound
+    assert "schema_version: 34" in adg
+    assert "anonymize_client_ip: true" in adg
+    assert "edns_client_subnet:\n    enabled: false" in adg
+    assert "insecure_enabled: false" in adg
+    assert "tls:\n  enabled: false" in adg
+    assert "ignored_enabled: false" in adg
     assert "NOVA Encrypted DNS Bypass" in adg
     assert "enabled: @@DOH_FILTER_ENABLED@@" in adg
 
