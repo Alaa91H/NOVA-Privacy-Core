@@ -23,10 +23,12 @@ fi
 # shellcheck disable=SC1091
 source /etc/os-release
 codename="${VERSION_CODENAME:-}"
-[[ -n "$codename" ]] || die "Debian VERSION_CODENAME is unavailable"
+[[ -n "$codename" ]] || die "Ubuntu VERSION_CODENAME is unavailable"
 cat >/etc/apt/apt.conf.d/52nova-security-upgrades <<EOF
 Unattended-Upgrade::Origins-Pattern {
-        "origin=Debian,codename=${codename}-security,label=Debian-Security";
+        "origin=Ubuntu,codename=${codename}-security,label=Ubuntu";
+        "origin=UbuntuESMApps,codename=${codename}-apps-security";
+        "origin=UbuntuESM,codename=${codename}-infra-security";
 };
 Unattended-Upgrade::Automatic-Reboot "false";
 Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
@@ -62,7 +64,7 @@ find_keyed_sudo_admin() {
 
 admin_user="$(find_keyed_sudo_admin || true)"
 [[ -n "$admin_user" ]] ||
-  die "refusing SSH hardening: create a non-root Debian user with authorized_keys and sudo-group access first"
+  die "refusing SSH hardening: create a non-root Ubuntu user with authorized_keys and sudo-group access first"
 
 install -d -m 0755 /etc/ssh/sshd_config.d
 install -m 0644 "$ROOT/config/ssh/90-nova-privacy.conf" /etc/ssh/sshd_config.d/90-nova-privacy.conf
