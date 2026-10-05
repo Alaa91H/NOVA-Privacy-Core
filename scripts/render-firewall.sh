@@ -86,12 +86,16 @@ case "${NOVA_TRAFFIC_GATE:-closed}" in
     TRAFFIC_GATE_DROP=""
     ;;
   closed)
+    # Literal nft quotes are template payload, not shell syntax.
+    # shellcheck disable=SC2089
     printf -v TRAFFIC_GATE_DROP       '    iifname "%s" ip saddr { %s, %s } drop comment "NOVA_TRAFFIC_GATE_CLOSED"'       "$NOVA_VPN_IF" "$NOVA_VPN_NET" "$NOVA_MGMT_NET"
     ;;
   *)
     die "invalid NOVA_TRAFFIC_GATE=${NOVA_TRAFFIC_GATE:-unset}"
     ;;
 esac
+# The Python renderer consumes these literal nft tokens from the environment.
+# shellcheck disable=SC2090
 export TRAFFIC_GATE_DROP
 
 if [[ -n "${NOVA_BOOTSTRAP_SSH_CIDR:-}" ]]; then
