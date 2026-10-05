@@ -126,8 +126,17 @@ EOF
 reported="$("$build_dir/amneziawg-go" --version 2>/dev/null | awk 'NR==1{print $2}')"
 [[ "$reported" == "$target_go" ]]
 
-# Re-run repository contracts under the actual production userspace.
+# Re-run repository contracts from a writable, root-owned copy. The source
+# mount is intentionally read-only and owned by the outer runner; Python bytecode
+# generation and Git safety checks must not require weakening either property.
+work_root="/work/nova"
+rm -rf "$work_root"
+install -d -m 0755 "$work_root"
+cp -a "$SOURCE_ROOT/." "$work_root/"
+cd "$work_root"
+
 bash tests/run.sh
 bash tests/test-render-firewall.sh
 
-printf 'PASS Ubuntu 26.04 target smoke: unbound=%s awg-tools=%s awg-go=%s go=%s\n'   "$unbound_version" "$tools_candidate" "$target_go" "$go_version"
+printf 'PASS Ubuntu 26.04 target smoke: unbound=%s awg-tools=%s awg-go=%s go=%s\n' \
+  "$unbound_version" "$tools_candidate" "$target_go" "$go_version"
