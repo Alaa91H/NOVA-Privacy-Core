@@ -46,14 +46,16 @@ else
   apt-get -o DPkg::Lock::Timeout=600 install -y --no-install-recommends linux-generic linux-headers-generic
 fi
 
-# Refresh application components through their own verification paths.
+# Re-verify every non-Ubuntu trust path after the package transaction before
+# any protected forwarding can reopen.
+"$ROOT/scripts/install-github-cli.sh"
 "$ROOT/scripts/resolve-versions.sh" adguard
 "$ROOT/scripts/install-awg.sh"
 "$ROOT/scripts/install-dns.sh"
 "$ROOT/scripts/install-doh-guard.sh"
 "$ROOT/scripts/configure-memory.sh"
 
-apt-get -y autoremove --purge
+apt-get -o DPkg::Lock::Timeout=600 -y autoremove --purge
 apt-get clean
 systemd-tmpfiles --clean || true
 
