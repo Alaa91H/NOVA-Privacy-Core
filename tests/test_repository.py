@@ -514,6 +514,29 @@ def test_awg_userspace_integrity_is_a_gate():
     assert "AWG userspace version/hash integrity" in live
     assert "write_runtime_kv NOVA_AWG_GO_SHA256" in installer
 
+
+def test_peer_registry_is_data_only():
+    common = read("scripts/lib/common.sh")
+    consumers = "\n".join(read(p) for p in (
+        "scripts/render-firewall.sh",
+        "scripts/rebuild-awg-peers.sh",
+        "scripts/set-profile.sh",
+        "scripts/rotate-peer.sh",
+        "src/privacyctl",
+    ))
+    creator = read("scripts/create-peer.sh")
+
+    assert "load_peer_registry()" in common
+    assert "peer registry must be root-owned" in common
+    assert "unknown peer registry key" in common
+    assert "peer IP does not belong" in common
+    assert "unexpected peer PSK path" in common
+    assert 'source "$peer"' not in consumers
+    assert 'source "$f"' not in consumers
+    assert "load_peer_registry" in consumers
+    assert "NAME=$name" in creator
+    assert "PUBLIC_KEY=$client_public" in creator
+
 def test_version():
     version = read("VERSION").strip()
     assert re.fullmatch(r"\d+\.\d+\.\d+", version), version
@@ -561,6 +584,7 @@ def main():
         test_ubuntu_awg_path_avoids_known_kernel_module_risk,
         test_verified_reopen_is_centralized_and_rollback_safe,
         test_awg_userspace_integrity_is_a_gate,
+        test_peer_registry_is_data_only,
         test_version,
     ]
     for test in tests:
