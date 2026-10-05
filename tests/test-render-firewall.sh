@@ -26,6 +26,7 @@ export NOVA_BOOTSTRAP_SSH_CIDR=198.51.100.10/32
 export NOVA_UNBOUND_PORT=5335
 export NOVA_ADGUARD_PRIVATE_PORT=5300
 export NOVA_ADGUARD_STRICT_PORT=5301
+export NOVA_TRAFFIC_GATE=closed
 
 mkdir -p "$NOVA_ETC/peers.d" "$NOVA_STATE/doh" "$NOVA_RUN"
 
@@ -62,6 +63,7 @@ grep -q '10.77.0.20' "$file"
 grep -q '203.0.113.1' "$file"
 grep -q '203.0.113.120' "$file"
 grep -q 'ip saddr @strict4 ip daddr @doh4 drop' "$file"
+grep -q 'NOVA_TRAFFIC_GATE_CLOSED' "$file"
 exit 0
 EOF
 chmod 0755 "$tmp/fake-nft"
@@ -74,5 +76,11 @@ rendered="$NOVA_ETC/nftables/nova.nft"
 grep -q '198.51.100.10/32 tcp dport 22 accept' "$rendered"
 grep -q 'elements = { 10.77.0.20 }' "$rendered"
 grep -q 'elements = { 10.77.10.20 }' "$rendered"
+grep -q 'NOVA_TRAFFIC_GATE_CLOSED' "$rendered"
 
-printf 'PASS test-render-firewall runtime rendering\n'
+export NOVA_TRAFFIC_GATE=open
+bash "$ROOT/scripts/render-firewall.sh"
+rendered="$NOVA_ETC/nftables/nova.nft"
+! grep -q 'NOVA_TRAFFIC_GATE_CLOSED' "$rendered"
+
+printf 'PASS test-render-firewall closed/open gate rendering\n'
