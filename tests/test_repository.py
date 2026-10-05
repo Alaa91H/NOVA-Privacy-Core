@@ -207,6 +207,28 @@ def test_backup_restore_are_serialized_and_complete():
     assert "doh-ipv4.txt" in ctl
     assert "STRICT encrypted-DNS IP guard is active" in leak
 
+
+def test_host_hardening_baseline():
+    bootstrap = read("scripts/bootstrap.sh")
+    harden = read("scripts/harden.sh")
+    sysctl = read("config/sysctl/99-nova-privacy.conf")
+    assert "apparmor" in bootstrap
+    assert "unattended-upgrades" in bootstrap
+    assert "52nova-security-upgrades" in harden
+    assert "Automatic-Reboot" in harden
+    assert "mlkem768x25519-sha256" in harden
+    assert "net.ipv6.conf.all.disable_ipv6 = 1" in sysctl
+    assert "kernel.perf_event_paranoid = 3" in sysctl
+
+def test_awg31_is_capability_probed():
+    installer = read("scripts/install-awg.sh")
+    defaults = read("config/defaults.env")
+    assert "probe_awg31()" in installer
+    assert 'awg setconf "$dev" "$cfg"' in installer
+    assert "amneziawg-dkms" in installer
+    assert "failed 3.1 capability probe" in installer
+    assert "NOVA_AWG_EXPERIMENTAL_RANDOM_TRAILERS=${NOVA_AWG_EXPERIMENTAL_RANDOM_TRAILERS:-off}" in defaults
+
 def test_version():
     version = read("VERSION").strip()
     assert re.fullmatch(r"\d+\.\d+\.\d+", version), version
@@ -231,6 +253,8 @@ def main():
         test_peer_export_atomic_and_ipv6_safe,
         test_awg_rebuild_is_transactional,
         test_backup_restore_are_serialized_and_complete,
+        test_host_hardening_baseline,
+        test_awg31_is_capability_probed,
         test_version,
     ]
     for test in tests:
