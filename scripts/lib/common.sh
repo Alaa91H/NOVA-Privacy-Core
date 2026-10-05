@@ -141,40 +141,42 @@ load_peer_registry() {
   [[ "$owner" == "0" ]] || die "peer registry must be root-owned: $file"
   (( (8#$perm & 077) == 0 )) || die "peer registry must not be group/world accessible: $file"
 
-  unset NAME IP PROFILE MANAGEMENT PUBLIC_KEY PSK_FILE
+  unset PEER_NAME PEER_IP PEER_PROFILE PEER_MANAGEMENT PEER_PUBLIC_KEY PEER_PSK_FILE
   while IFS='=' read -r key value; do
     [[ -n "$key" ]] || continue
     [[ "$key" =~ ^[A-Z_]+$ ]] || die "invalid peer registry key syntax in $file"
     case "$key" in
-      NAME|IP|PROFILE|MANAGEMENT|PUBLIC_KEY|PSK_FILE)
-        printf -v "$key" '%s' "$value"
-        ;;
-      *)
-        die "unknown peer registry key '$key' in $file"
-        ;;
+      NAME) PEER_NAME="$value" ;;
+      IP) PEER_IP="$value" ;;
+      PROFILE) PEER_PROFILE="$value" ;;
+      MANAGEMENT) PEER_MANAGEMENT="$value" ;;
+      PUBLIC_KEY) PEER_PUBLIC_KEY="$value" ;;
+      PSK_FILE) PEER_PSK_FILE="$value" ;;
+      *) die "unknown peer registry key '$key' in $file" ;;
     esac
   done <"$file"
 
-  [[ -n "${NAME:-}" && -n "${IP:-}" && -n "${PROFILE:-}" &&
-     -n "${MANAGEMENT:-}" && -n "${PUBLIC_KEY:-}" && -n "${PSK_FILE:-}" ]] ||
+  [[ -n "${PEER_NAME:-}" && -n "${PEER_IP:-}" && -n "${PEER_PROFILE:-}" &&
+     -n "${PEER_MANAGEMENT:-}" && -n "${PEER_PUBLIC_KEY:-}" &&
+     -n "${PEER_PSK_FILE:-}" ]] ||
     die "incomplete peer registry: $file"
 
-  valid_peer_name "$NAME" || die "invalid peer name in registry: $file"
-  valid_profile "$PROFILE" || die "invalid peer profile in registry: $file"
-  [[ "$MANAGEMENT" == "0" || "$MANAGEMENT" == "1" ]] ||
+  valid_peer_name "$PEER_NAME" || die "invalid peer name in registry: $file"
+  valid_profile "$PEER_PROFILE" || die "invalid peer profile in registry: $file"
+  [[ "$PEER_MANAGEMENT" == "0" || "$PEER_MANAGEMENT" == "1" ]] ||
     die "invalid management flag in registry: $file"
-  [[ "$PUBLIC_KEY" =~ ^[A-Za-z0-9+/]{43}=$ ]] ||
+  [[ "$PEER_PUBLIC_KEY" =~ ^[A-Za-z0-9+/]{43}=$ ]] ||
     die "invalid peer public key encoding in registry: $file"
-  valid_peer_ip_for_role "$IP" "$MANAGEMENT" ||
+  valid_peer_ip_for_role "$PEER_IP" "$PEER_MANAGEMENT" ||
     die "peer IP does not belong to its assigned NOVA network: $file"
 
-  expected="$NOVA_ETC/peer-secrets/$NAME/psk"
-  [[ "$PSK_FILE" == "$expected" ]] ||
+  expected="$NOVA_ETC/peer-secrets/$PEER_NAME/psk"
+  [[ "$PEER_PSK_FILE" == "$expected" ]] ||
     die "unexpected peer PSK path in registry: $file"
-  [[ -f "$PSK_FILE" && ! -L "$PSK_FILE" ]] ||
-    die "peer PSK file missing or unsafe: $PSK_FILE"
+  [[ -f "$PEER_PSK_FILE" && ! -L "$PEER_PSK_FILE" ]] ||
+    die "peer PSK file missing or unsafe: $PEER_PSK_FILE"
 
-  [[ "$(basename "$file")" == "$NAME.env" ]] ||
+  [[ "$(basename "$file")" == "$PEER_NAME.env" ]] ||
     die "peer registry filename/name mismatch: $file"
 }
 
