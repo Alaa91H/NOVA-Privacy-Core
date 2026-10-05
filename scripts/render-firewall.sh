@@ -40,6 +40,7 @@ export UNBOUND_PORT="${NOVA_UNBOUND_PORT}"
 export COMPAT_ELEMENTS="$(collect_ips COMPAT)"
 export STRICT_ELEMENTS="$(collect_ips STRICT)"
 export MGMT_ELEMENTS="$(collect_ips ignored management)"
+export LOCKDOWN_ELEMENTS="$(collect_ips LOCKDOWN)"
 
 if [[ -n "${NOVA_BOOTSTRAP_SSH_CIDR:-}" ]]; then
   if [[ "$NOVA_BOOTSTRAP_SSH_CIDR" == *:* ]]; then
