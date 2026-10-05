@@ -463,7 +463,77 @@ def test_bootstrap_is_release_first_and_not_pipe_to_shell():
 def test_privacyctl_is_single_canonical_control_plane():
     ctl = read("src/privacyctl")
     assert ctl.count("#!/usr/bin/env bash") == 1
-    assert ctl.count('case "${1:-}" in') == 1
+    assert len(re.findall(r'^case "\\${1:-}" in    assert ctl.count("cmd_health() {") == 1
+    assert ctl.count("cmd_activate() {") == 1
+    assert "valid_cidr" in ctl
+
+
+def test_ubuntu_awg_path_avoids_known_kernel_module_risk():
+    installer = read("scripts/install-awg.sh")
+    service = read("config/systemd/nova-awg.service.in")
+    defaults = read("config/defaults.env")
+
+    assert "production supports only NOVA_AWG_BACKEND=userspace" in installer
+    assert "apt-get" in installer and "amneziawg-tools" in installer
+    assert "amneziawg-dkms" in installer and "Pin-Priority: -1" in installer
+    assert "amneziawg-go" in service
+    assert "ExecStartPre=/sbin/modprobe amneziawg" not in service
+    assert "NOVA_AWG_GO_VERSION=${NOVA_AWG_GO_VERSION:-auto}" in defaults
+
+def test_version():
+    version = read("VERSION").strip()
+    assert re.fullmatch(r"\d+\.\d+\.\d+", version), version
+
+def main():
+    tests = [
+        test_firewall,
+        test_lockdown_precedes_conntrack_accept,
+        test_deployment_gate_precedes_conntrack_accept,
+        test_dns_bypass_blocks_precede_conntrack_accept,
+        test_early_firewall_boot_order,
+        test_dns_privacy,
+        test_adguard_least_privilege_auth,
+        test_release_authenticity,
+        test_strict_doh_guard,
+        test_awg_safety,
+        test_peer_key_separation,
+        test_forwarding_enabled_only_after_firewall,
+        test_installer_order,
+        test_no_tls_mitm,
+        test_secret_ignores,
+        test_operator_overrides_are_preserved,
+        test_anonymity_modes_are_client_only,
+        test_peer_export_atomic_and_ipv6_safe,
+        test_awg_rebuild_is_transactional,
+        test_backup_restore_are_serialized_and_complete,
+        test_host_hardening_baseline,
+        test_awg31_is_capability_probed,
+        test_firewall_service_starts_immediately,
+        test_ipv6_block_is_verified,
+        test_optional_features_fail_closed,
+        test_live_acceptance_tooling,
+        test_client_acceptance_assets,
+        test_deployment_baseline_gates,
+        test_ci_and_release_are_target_and_provenance_gated,
+        test_third_party_repo_is_constrained,
+        test_live_acceptance_is_single_canonical_script,
+        test_awg_updates_do_not_drop_management_tunnel,
+        test_dynamic_memory_is_privacy_safe,
+        test_periodic_maintenance_is_fail_closed,
+        test_release_self_update_requires_checksum_and_provenance,
+        test_activation_gate_has_no_unverified_open_command,
+        test_bootstrap_is_release_first_and_not_pipe_to_shell,
+        test_privacyctl_is_single_canonical_control_plane,
+        test_ubuntu_awg_path_avoids_known_kernel_module_risk,
+        test_version,
+    ]
+    for test in tests:
+        test()
+        print(f"PASS {test.__name__}")
+
+if __name__ == "__main__":
+    main()
+, ctl, re.M)) == 1
     assert ctl.count("cmd_health() {") == 1
     assert ctl.count("cmd_activate() {") == 1
     assert "valid_cidr" in ctl
