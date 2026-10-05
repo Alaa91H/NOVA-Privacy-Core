@@ -34,6 +34,18 @@ jobs:
       - name: Privileged firewall renderer integration test
         run: sudo -E bash tests/test-render-firewall.sh
 
+      - name: Target Debian 13.7 validation
+        run: |
+          docker run --rm             -v "$PWD:/src:ro"             debian:13.7-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a             bash -Eeuo pipefail -c '
+              apt-get update
+              apt-get install -y --no-install-recommends bash git shellcheck nftables python3 ca-certificates
+              mkdir -p /work
+              cp -a /src/. /work/
+              cd /work
+              bash tests/run.sh
+              bash tests/test-render-firewall.sh
+            '
+
       - name: Validate no generated secret paths are tracked
         run: |
-          ! git ls-files | grep -E '(^|/)(peer-exports|secrets)/|\.(key|psk|p12|pfx)$'
+          ! git ls-files | grep -E '(^|/)(peer-exports|secrets)/|\.(key|psk|p12|pfx)
