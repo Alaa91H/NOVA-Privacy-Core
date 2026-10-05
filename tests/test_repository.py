@@ -229,6 +229,17 @@ def test_awg31_is_capability_probed():
     assert "failed 3.1 capability probe" in installer
     assert "NOVA_AWG_EXPERIMENTAL_RANDOM_TRAILERS=${NOVA_AWG_EXPERIMENTAL_RANDOM_TRAILERS:-off}" in defaults
 
+
+def test_firewall_service_starts_immediately():
+    installer = read("scripts/install-firewall.sh")
+    assert "systemctl enable --now nova-firewall.service" in installer
+    assert "systemctl is-active --quiet nova-firewall.service" in installer
+
+def test_ipv6_block_is_verified():
+    leak = read("scripts/verify-leaks.sh")
+    assert "net.ipv6.conf.all.disable_ipv6" in leak
+    assert "net.ipv6.conf.default.disable_ipv6" in leak
+
 def test_version():
     version = read("VERSION").strip()
     assert re.fullmatch(r"\d+\.\d+\.\d+", version), version
@@ -255,6 +266,8 @@ def main():
         test_backup_restore_are_serialized_and_complete,
         test_host_hardening_baseline,
         test_awg31_is_capability_probed,
+        test_firewall_service_starts_immediately,
+        test_ipv6_block_is_verified,
         test_version,
     ]
     for test in tests:
