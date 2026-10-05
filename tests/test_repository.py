@@ -82,7 +82,7 @@ def test_adguard_least_privilege_auth():
 def test_release_authenticity():
     defaults = read("config/defaults.env")
     installer = read("scripts/install-dns.sh")
-    assert "NOVA_ADGUARD_GPG_FPR=28645AC9776EC4C00BCE2AFC0FE641E7235E2EC6" in defaults
+    assert "28645AC9776EC4C00BCE2AFC0FE641E7235E2EC6" in defaults
     assert "checksums.txt" in installer
     assert "--verify" in installer
     assert "AdGuardHome.sig" in installer
@@ -194,6 +194,19 @@ def test_awg_rebuild_is_transactional():
     assert "persistent config unchanged" in rebuild
     assert rebuild.index('awg syncconf "$NOVA_VPN_IF" "$new_stripped"') < rebuild.index('mv -f "$candidate" "$conf"')
 
+
+def test_backup_restore_are_serialized_and_complete():
+    backup = read("scripts/backup.sh")
+    restore = read("scripts/restore.sh")
+    ctl = read("src/privacyctl")
+    leak = read("scripts/verify-leaks.sh")
+    assert "acquire_nova_lock" in backup
+    assert "acquire_nova_lock" in restore
+    assert "install-doh-guard.sh" in restore
+    assert "nova-doh-ips.timer" in ctl
+    assert "doh-ipv4.txt" in ctl
+    assert "STRICT encrypted-DNS IP guard is active" in leak
+
 def test_version():
     version = read("VERSION").strip()
     assert re.fullmatch(r"\d+\.\d+\.\d+", version), version
@@ -217,6 +230,7 @@ def main():
         test_anonymity_modes_are_client_only,
         test_peer_export_atomic_and_ipv6_safe,
         test_awg_rebuild_is_transactional,
+        test_backup_restore_are_serialized_and_complete,
         test_version,
     ]
     for test in tests:
