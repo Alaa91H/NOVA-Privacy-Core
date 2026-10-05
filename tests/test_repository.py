@@ -551,6 +551,8 @@ def test_restore_is_always_fail_closed_and_host_revalidated():
     assert "Recovery is always fail-closed" in restore
     assert "NOVA_TRAFFIC_GATE closed" in restore
     assert "NOVA_BOOTSTRAP_SSH_CIDR" in restore
+    assert 'recovery_bootstrap_cidr="${NOVA_BOOTSTRAP_SSH_CIDR:-}"' in restore
+    assert 'write_runtime_kv NOVA_BOOTSTRAP_SSH_CIDR "$recovery_bootstrap_cidr"' in restore
     assert "install-awg.sh" in restore
     assert "configure-memory.sh" in restore
     assert "install-automation.sh" in restore
