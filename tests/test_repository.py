@@ -569,11 +569,13 @@ def test_github_cli_attestation_path_is_official_and_pinned():
     expected_fpr1 = "2C6106201985B60E6C7AC87323F3D4EA75716059"
     expected_fpr2 = "7F38BBB59D064DBCB3D84D725612B36462313325"
 
-    for text in (helper, bootstrap, defaults):
+    for text in (bootstrap, defaults):
         assert expected_hash in text
         assert expected_fpr1 in text
         assert expected_fpr2 in text
 
+    assert "NOVA_GITHUB_CLI_KEYRING_SHA256" in helper
+    assert "NOVA_GITHUB_CLI_KEY_FPRS" in helper
     assert "https://cli.github.com/packages" in helper
     assert "Pin: origin cli.github.com" in helper
     assert "Package: gh" in helper
