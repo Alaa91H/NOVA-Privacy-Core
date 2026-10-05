@@ -24,12 +24,7 @@ printf '\n# BEGIN NOVA PEERS\n' >>"$candidate"
 
 shopt -s nullglob
 for f in "$NOVA_ETC"/peers.d/*.env; do
-  unset NAME IP PROFILE MANAGEMENT PUBLIC_KEY PSK_FILE
-  # shellcheck disable=SC1090
-  source "$f"
-  [[ -n "${NAME:-}" && -n "${IP:-}" && -n "${PUBLIC_KEY:-}" && -n "${PSK_FILE:-}" ]] ||
-    die "invalid peer registry: $f"
-  [[ -r "$PSK_FILE" ]] || die "missing PSK for peer $NAME"
+  load_peer_registry "$f"
   cat >>"$candidate" <<EOF
 
 # NOVA_PEER:$NAME
