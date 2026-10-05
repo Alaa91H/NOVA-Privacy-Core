@@ -1,0 +1,13 @@
+[Unit]
+Description=NOVA post-boot verification before reopening protected forwarding
+After=network-online.target nova-awg.service unbound.service nova-adguard-private.service nova-adguard-strict.service
+Wants=network-online.target
+ConditionPathExists=/var/lib/nova-privacy/maintenance/reopen-after-boot
+
+[Service]
+Type=oneshot
+ExecStart=/opt/nova-privacy/scripts/postboot-verify.sh
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
