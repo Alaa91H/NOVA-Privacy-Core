@@ -1,0 +1,32 @@
+# Secret/private material
+*.key
+*.psk
+*.pem
+*.p12
+*.pfx
+*.mobileconfig
+*.qr.png
+*.agekey
+.env
+.env.*
+
+# Generated peer exports and runtime state
+peer-exports/
+secrets/
+nova-peers/
+backups/
+*.tar.age
+
+# Build/test output
+.build/
+dist/
+coverage/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Editors / OS
+.vscode/
+.idea/
+*~
+.DS_Store

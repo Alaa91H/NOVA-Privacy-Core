@@ -1,0 +1,30 @@
+[Unit]
+Description=NOVA AdGuard Home (@@PROFILE@@)
+After=network-online.target nova-awg.service unbound.service
+Requires=nova-awg.service unbound.service
+
+[Service]
+Type=simple
+User=nova-dns
+Group=nova-dns
+UMask=0077
+ExecStart=@@BINARY@@ -c @@CONFIG@@ -w @@WORKDIR@@ --web-addr 127.0.0.1:@@UI_PORT@@ --no-check-update
+Restart=on-failure
+RestartSec=3
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+LockPersonality=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ReadWritePaths=@@WORKDIR@@
+
+[Install]
+WantedBy=multi-user.target

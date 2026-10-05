@@ -1,0 +1,25 @@
+[Unit]
+Description=NOVA encrypted-DNS IPv4 set refresh
+After=network-online.target nova-firewall.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/nova-privacy/scripts/update-doh-ips.sh
+UMask=0022
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectHome=yes
+ProtectSystem=strict
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+LockPersonality=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ReadWritePaths=/var/lib/nova-privacy/doh /etc/nova-privacy/nftables /run/nova-privacy
+CapabilityBoundingSet=CAP_NET_ADMIN
+AmbientCapabilities=CAP_NET_ADMIN

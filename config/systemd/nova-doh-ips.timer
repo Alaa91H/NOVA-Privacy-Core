@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh NOVA encrypted-DNS IPv4 protection
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=8h
+RandomizedDelaySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

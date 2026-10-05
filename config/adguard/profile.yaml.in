@@ -1,0 +1,111 @@
+http:
+  address: 127.0.0.1:@@UI_PORT@@
+  session_ttl: 1h
+  pprof:
+    enabled: false
+    port: 6060
+  doh:
+    insecure_enabled: false
+    routes:
+      - GET /dns-query
+      - POST /dns-query
+      - GET /dns-query/{ClientID}
+      - POST /dns-query/{ClientID}
+users:
+  - name: nova-admin
+    password: "@@ADMIN_HASH@@"
+auth_attempts: 5
+block_auth_min: 15
+
+dns:
+  bind_hosts:
+    - @@VPN_IP@@
+    - @@MGMT_IP@@
+  port: @@DNS_PORT@@
+  ratelimit: 0
+  refuse_any: true
+  upstream_dns:
+    - 127.0.0.1:@@UNBOUND_PORT@@
+  bootstrap_dns: []
+  fallback_dns: []
+  cache_size: 4194304
+  cache_optimistic: true
+  enable_dnssec: false
+  anonymize_client_ip: true
+  edns_client_subnet:
+    enabled: false
+    use_custom: false
+    custom_ip: ""
+
+querylog:
+  enabled: false
+  file_enabled: false
+  interval: 1h
+  size_memory: 0
+  ignored: []
+  ignored_enabled: false
+
+statistics:
+  enabled: false
+  interval: 1h
+  ignored: []
+  ignored_enabled: false
+
+filters:
+  - enabled: true
+    url: @@MAIN_FILTER@@
+    name: NOVA primary filter
+    id: 1001
+  - enabled: true
+    url: @@TIF_FILTER@@
+    name: NOVA TIF Mini
+    id: 1002
+  - enabled: @@DOH_FILTER_ENABLED@@
+    url: @@DOH_FILTER@@
+    name: NOVA Encrypted DNS Bypass
+    id: 1003
+
+whitelist_filters: []
+user_rules: []
+
+filtering:
+  blocking_ipv4: ""
+  blocking_ipv6: ""
+  blocking_mode: default
+  rewrites: []
+  filters_update_interval: 24
+  blocked_response_ttl: 10
+  filtering_enabled: true
+  rewrites_enabled: true
+  parental_enabled: false
+  safebrowsing_enabled: false
+  protection_enabled: true
+
+tls:
+  enabled: false
+
+clients:
+  runtime_sources:
+    whois: false
+    arp: false
+    rdns: false
+    dhcp: false
+    hosts: false
+  persistent: []
+
+log:
+  enabled: true
+  file: ""
+  max_backups: 0
+  max_size: 10
+  max_age: 1
+  compress: false
+  local_time: false
+  verbose: false
+
+os:
+  group: ""
+  user: ""
+  rlimit_nofile: 0
+
+schema_version: 34

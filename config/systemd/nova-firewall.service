@@ -1,0 +1,15 @@
+[Unit]
+Description=NOVA Privacy Core early fail-closed firewall
+DefaultDependencies=no
+After=local-fs.target systemd-modules-load.service
+Before=network-pre.target network-online.target nova-awg.service shutdown.target
+Wants=network-pre.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/nova-privacy/scripts/render-firewall.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=network-pre.target
