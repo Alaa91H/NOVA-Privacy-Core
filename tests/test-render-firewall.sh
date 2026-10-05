@@ -81,6 +81,9 @@ grep -q 'NOVA_TRAFFIC_GATE_CLOSED' "$rendered"
 export NOVA_TRAFFIC_GATE=open
 bash "$ROOT/scripts/render-firewall.sh"
 rendered="$NOVA_ETC/nftables/nova.nft"
-! grep -q 'NOVA_TRAFFIC_GATE_CLOSED' "$rendered"
+if grep -q 'NOVA_TRAFFIC_GATE_CLOSED' "$rendered"; then
+  printf 'FAIL open traffic gate still rendered CLOSED marker\n' >&2
+  exit 1
+fi
 
 printf 'PASS test-render-firewall closed/open gate rendering\n'
