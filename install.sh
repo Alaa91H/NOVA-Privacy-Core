@@ -26,10 +26,12 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends   ca-certificates curl gnupg jq tar gzip coreutils python3 git
 
-install_official_gh() {
+install_official_gh() (
+  set -Eeuo pipefail
   local keyring actual arch candidate trusted found allowed
+  local -a allowed_fprs=()
   keyring="$(mktemp)"
-  trap 'rm -f "$keyring"' RETURN
+  trap 'rm -f "$keyring"' EXIT
 
   curl --proto '=https' --tlsv1.2 -fsSL     --connect-timeout 10 --max-time 30     https://cli.github.com/packages/githubcli-archive-keyring.gpg     -o "$keyring"
 
@@ -83,7 +85,7 @@ EOF
     printf 'Installed GitHub CLI lacks attestation bundle support.\n' >&2
     return 1
   }
-}
+)
 
 install_official_gh
 
