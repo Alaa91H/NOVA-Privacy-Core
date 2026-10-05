@@ -1,0 +1,10 @@
+[Unit]
+Description=Weekly NOVA cleanup
+
+[Timer]
+OnCalendar=Sun *-*-* 05:45:00
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
