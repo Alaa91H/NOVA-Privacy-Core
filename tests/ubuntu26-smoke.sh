@@ -31,7 +31,8 @@ apt-cache show linux-oracle-7.0 >/dev/null
 # Ubuntu's gh package may lag attestation support. Validate the same signed
 # official GitHub CLI repository path used by production.
 bash "$ROOT/scripts/install-github-cli.sh"
-gh attestation verify --help | grep -q -- '--bundle'
+gh_attestation_help="$(gh attestation verify --help 2>&1 || true)"
+grep -q -- '--bundle' <<<"$gh_attestation_help"
 
 # Validate the exact third-party package trust boundary used by production.
 expected_fpr="75C9DD72C799870E310542E24166F2C257290828"
