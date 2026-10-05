@@ -1,6 +1,6 @@
 # Live Validation and Acceptance
 
-Repository CI proves syntax, static policy invariants, renderer behavior, and supply-chain checks. It cannot prove a physical network path.
+Repository CI can prove syntax, static security invariants, renderer behavior, workflow validity, Ubuntu 26.04 compatibility checks, and release-chain controls. It cannot prove a physical network path.
 
 ## Server acceptance sequence
 
@@ -9,22 +9,62 @@ Before the management peer is connected:
 ```bash
 sudo privacyctl acceptance preflight
 sudo privacyctl health
+sudo privacyctl leaks test
 ```
+
+Protected forwarding remains **CLOSED**.
 
 After the management peer has a recent handshake:
 
 ```bash
-sudo privacyctl lockdown
+sudo privacyctl activate
 sudo privacyctl acceptance server
 ```
 
-For the full post-lockdown report, including remaining physical-client gates:
+For the complete post-activation report:
 
 ```bash
 sudo privacyctl acceptance report
 ```
 
-The `server` and `report` modes intentionally fail while the temporary public SSH bootstrap rule still exists.
+`activate` is the only supported path to OPEN. It removes the temporary public SSH bootstrap rule and refuses to open forwarding if a reboot is pending or any health/leak check fails.
+
+## Ubuntu 26.04 / AWG acceptance
+
+The production path uses `amneziawg-go`, not the current kernel module.
+
+Live evidence must include:
+
+- `privacyctl status` reports userspace backend/version;
+- a real management peer handshake;
+- real data transfer through the userspace AWG path;
+- no pending reboot after tool/daemon/kernel updates;
+- reconnect after a reboot with post-boot gate verification.
+
+## Update/reboot acceptance
+
+Exercise at least one maintenance cycle on a test host:
+
+```bash
+sudo privacyctl update system
+```
+
+Observe:
+
+1. traffic gate moves CLOSED before package changes;
+2. package/kernel/app update completes;
+3. if reboot-required is created, traffic stays CLOSED;
+4. reboot occurs if configured;
+5. post-boot verification executes;
+6. traffic returns OPEN only after successful verification.
+
+Also test:
+
+```bash
+sudo privacyctl update release
+```
+
+using a test release/candidate environment before production v1.0.0.
 
 ## Optional feature probe
 
@@ -32,18 +72,11 @@ The `server` and `report` modes intentionally fail while the temporary public SS
 sudo privacyctl features probe
 ```
 
-This reports local capability only. It never marks MASQUE, PQ/TLS, ECH, Tor, or Nym as accepted merely because a binary is installed.
-
-Current design facts verified against upstream documentation:
-
-- sing-box 1.15+ exposes MASQUE CONNECT-IP client/server endpoints (RFC 9484).
-- Tor Browser remains the preferred browser isolation surface for TOR-ANON.
-- Nym mixnet clients use fixed-size Sphinx traffic, cover traffic and mix delays; this is a different latency/privacy tradeoff from a VPN.
-- Hysteria 2 is QUIC-based and suitable as an optional degraded-network fallback, not the core trust layer.
+Capability presence is not acceptance. MASQUE, PQ/TLS, ECH, Tor, Nym, NaiveProxy and Hysteria 2 remain gated until real interoperability/privacy/performance evidence exists.
 
 ## Failure injection
 
-First inspect the plan:
+Inspect first:
 
 ```bash
 sudo privacyctl failure-injection dry-run
@@ -55,30 +88,32 @@ Only with Oracle Console / serial / another out-of-band path:
 sudo NOVA_OOB_CONFIRMED=1 privacyctl failure-injection execute
 ```
 
-The script tests DNS-service fail-closed behavior. It deliberately leaves AWG-stop and reboot observation manual because automatically severing the active management tunnel would be unsafe.
+The automated portion validates DNS service fail-closed behavior. AWG-stop and reboot observation remain manual because blindly severing the active management path would be unsafe.
 
 ## Physical clients
 
 ### Android
 
-1. Import the peer profile.
+1. Import the unique NOVA peer.
 2. Enable Always-on VPN.
 3. Enable Block connections without VPN.
-4. Verify public IPv4 equals the protected exit.
-5. Verify no direct IPv6 path exists.
-6. Verify DNS does not use the ISP.
-7. Stop AWG on the server from Oracle Console and verify Android has no Internet.
-8. Restore AWG and verify recovery.
+4. Verify DNS uses NOVA.
+5. Verify no direct IPv6 route exists.
+6. Verify the visible exit is the expected protected exit.
+7. Stop AWG from Oracle Console.
+8. Confirm Android has **no Internet** rather than direct fallback.
+9. Restore AWG and confirm recovery.
 
 ### Windows / Linux
 
-Repeat public-IP, DNS, IPv6 and tunnel-failure checks, then test:
+Repeat public-IP, DNS, IPv6 and forced-failure checks, then test:
 
 - sleep/wake;
-- Wi-Fi to Ethernet/hotspot changes;
+- Wi-Fi/Ethernet/hotspot changes;
 - route-table changes;
-- DNS cache behavior after reconnect.
+- DNS cache behavior;
+- update/reboot/reconnect behavior.
 
 ## Release gate
 
-Do not tag `v1.0.0` until T40-T47 have real evidence. The release workflow intentionally requires the tag to match `VERSION`.
+Do not tag `v1.0.0` until the real Oracle host, physical clients, clean restore, failure injection, performance/1GB resource tests, automatic update/reboot cycle, and soak gates all have evidence.
