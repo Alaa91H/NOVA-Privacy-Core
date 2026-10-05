@@ -325,6 +325,22 @@ def test_third_party_repo_is_constrained():
     assert "NOVA_AWG_TOOLS_PACKAGE_VERSION" in installer
     assert "NOVA_AWG_DKMS_PACKAGE_VERSION" in installer
 
+
+def test_live_acceptance_is_single_canonical_script():
+    live = read("scripts/live-acceptance.sh")
+    assert live.count("#!/usr/bin/env bash") == 1
+    assert live.count("preflight() {") == 1
+    assert live.count("server_checks() {") == 1
+    assert live.count("no_public_sensitive_ports() {") == 1
+
+def test_awg_updates_do_not_drop_management_tunnel():
+    cfg = read("scripts/configure-awg.sh")
+    active_block = cfg[cfg.index('if systemctl is-active --quiet nova-awg.service'):]
+    assert 'awg syncconf "$NOVA_VPN_IF" "$live_candidate"' in active_block
+    assert 'systemctl restart nova-awg.service' not in active_block
+    assert "active AWG address differs from requested design" in active_block
+    assert "updated in place without dropping the active tunnel" in active_block
+
 def test_version():
     version = read("VERSION").strip()
     assert re.fullmatch(r"\d+\.\d+\.\d+", version), version
@@ -359,6 +375,8 @@ def main():
         test_deployment_baseline_gates,
         test_ci_and_release_are_target_and_provenance_gated,
         test_third_party_repo_is_constrained,
+        test_live_acceptance_is_single_canonical_script,
+        test_awg_updates_do_not_drop_management_tunnel,
         test_version,
     ]
     for test in tests:
