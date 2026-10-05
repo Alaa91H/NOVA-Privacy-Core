@@ -545,6 +545,17 @@ def test_peer_registry_preserves_base64_padding():
     assert 'value="${line#*=}"' in common
     assert "while IFS='=' read -r key value" not in common
 
+
+def test_restore_is_always_fail_closed_and_host_revalidated():
+    restore = read("scripts/restore.sh")
+    assert "Recovery is always fail-closed" in restore
+    assert "NOVA_TRAFFIC_GATE closed" in restore
+    assert "NOVA_BOOTSTRAP_SSH_CIDR" in restore
+    assert "install-awg.sh" in restore
+    assert "configure-memory.sh" in restore
+    assert "install-automation.sh" in restore
+    assert "live-acceptance.sh" in restore
+    assert "privacyctl activate" in restore
 def test_version():
     version = read("VERSION").strip()
     assert re.fullmatch(r"\d+\.\d+\.\d+", version), version
@@ -594,6 +605,7 @@ def main():
         test_awg_userspace_integrity_is_a_gate,
         test_peer_registry_is_data_only,
         test_peer_registry_preserves_base64_padding,
+        test_restore_is_always_fail_closed_and_host_revalidated,
         test_version,
     ]
     for test in tests:
