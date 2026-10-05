@@ -57,7 +57,41 @@ else
 fi
 rm -f /tmp/nova-secret-scan.$$
 
-if git grep -nE -- 'curl[^|]*\|[[:space:]]*(sudo[[:space:]]+)?(ba)?sh|wget[^|]*\|[[:space:]]*(sudo[[:space:]]+)?(ba)?sh' -- scripts src config >/tmp/nova-pipe-scan.$$ 2>/dev/null; then
+tracked_secret_paths="$(
+  git ls-files |
+    grep -E '(^|/)(peer-exports|secrets)/|\.(key|psk|p12|pfx|agekey)$|\.tar\.age
+  cat /tmp/nova-pipe-scan.$$ >&2
+  bad "pipe-to-shell installer pattern"
+else
+  ok "no pipe-to-shell installers"
+fi
+rm -f /tmp/nova-pipe-scan.$$
+
+if grep -RInE 'bind_hosts:[[:space:]]*\[?0\.0\.0\.0|interface:[[:space:]]+0\.0\.0\.0' config/adguard config/unbound 2>/dev/null; then
+  bad "DNS wildcard bind"
+else
+  ok "DNS templates avoid public wildcard binds"
+fi
+
+for required in   docs/THREAT_MODEL.md docs/ARCHITECTURE.md docs/CRYPTO_POLICY.md   config/nftables/nova.nft.in scripts/install.sh src/privacyctl; do
+  [[ -s "$required" ]] || bad "missing required file: $required"
+done
+
+if [[ "$fail" -ne 0 ]]; then
+  exit 1
+fi
+printf '\nStatic security audit passed.\n'
+ ||
+    true
+)"
+if [[ -n "$tracked_secret_paths" ]]; then
+  printf '%s\n' "$tracked_secret_paths" >&2
+  bad "generated/secret paths are tracked by Git"
+else
+  ok "no generated/secret paths are tracked"
+fi
+
+if git grep -nE -- 'curl[^|]*\|[[:space:]]*(sudo[[:space:]]+)?(ba)?sh|wget[^|]*\|[[:space:]]*(sudo[[:space:]]+)?(ba)?sh' -- scripts src config >/tmp/nova-pipe-scan.$ 2>/dev/null; then
   cat /tmp/nova-pipe-scan.$$ >&2
   bad "pipe-to-shell installer pattern"
 else
