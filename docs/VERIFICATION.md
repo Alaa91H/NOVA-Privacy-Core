@@ -2,13 +2,20 @@
 
 ## Server-side
 
-Run:
+Before the management peer is established:
 
 ```bash
+sudo privacyctl acceptance preflight
 sudo privacyctl health
 sudo privacyctl leaks test
 sudo privacyctl firewall check
+```
+
+After a management peer has a recent handshake and `sudo privacyctl lockdown` succeeds:
+
+```bash
 sudo privacyctl acceptance server
+sudo privacyctl leaks test
 ```
 
 The checks cover:
