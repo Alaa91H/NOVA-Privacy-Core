@@ -200,9 +200,7 @@ cmd_peers() {
   printf '%-20s %-15s %-12s %-5s\n' NAME IP PROFILE MGMT
   shopt -s nullglob
   for f in "$NOVA_ETC"/peers.d/*.env; do
-    unset NAME IP PROFILE MANAGEMENT
-    # shellcheck disable=SC1090
-    source "$f"
+    load_peer_registry "$f"
     printf '%-20s %-15s %-12s %-5s\n' "$NAME" "$IP" "$PROFILE" "${MANAGEMENT:-0}"
   done
 }
@@ -218,9 +216,7 @@ recent_management_handshake() {
 
   shopt -s nullglob
   for f in "$NOVA_ETC"/peers.d/*.env; do
-    unset MANAGEMENT PUBLIC_KEY
-    # shellcheck disable=SC1090
-    source "$f"
+    load_peer_registry "$f"
     if [[ "${MANAGEMENT:-0}" == "1" ]]; then
       ts="${hs[$PUBLIC_KEY]:-0}"
       if [[ "$ts" =~ ^[0-9]+$ ]] && (( ts > 0 && now - ts <= 300 )); then
