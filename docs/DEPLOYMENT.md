@@ -4,6 +4,10 @@
 
 Baseline: Debian 13 stable/minimal on an Oracle Cloud VM with approximately 1 vCPU and 1 GB RAM.
 
+Before installation, create/verify a **non-root** administrator with an SSH public key and membership in Debian's `sudo` group. NOVA disables root SSH and password authentication and will refuse to apply that policy without a keyed non-root recovery administrator.
+
+NOVA v1 uses fail-closed IPv6 blocking. Perform the bootstrap SSH session over IPv4; an active IPv6 SSH installation session is rejected to avoid self-disconnection.
+
 ## Oracle network prerequisite
 
 The cloud Security List / NSG exists **outside** the guest firewall. NOVA cannot change it through this repository.
@@ -80,3 +84,25 @@ sudo rm -f /root/nova-peers/phone.conf /root/nova-peers/phone.qr.png
 ```
 
 The server registry keeps the public key and PSK required for operation, not the client's private key.
+
+
+## Readiness gate
+
+Read [DEPLOYMENT_READINESS.md](DEPLOYMENT_READINESS.md) before treating an installation as production-ready.
+
+A successful installer is only a deployment candidate. Production acceptance additionally requires:
+
+```bash
+sudo privacyctl acceptance preflight
+sudo privacyctl acceptance server
+sudo privacyctl leaks test
+```
+
+After the management peer is connected:
+
+```bash
+sudo privacyctl lockdown
+sudo privacyctl acceptance server
+```
+
+The final acceptance must show that the temporary public SSH firewall exception has been removed.
