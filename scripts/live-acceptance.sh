@@ -124,10 +124,10 @@ querylogs_disabled() {
 preflight() {
   run_check "Debian 13 baseline" is_debian_13
   run_check ">= 850 MiB visible RAM" ram_ok
-  command -v nft >/dev/null 2>&1 && ok "nftables installed" || bad "nftables missing"
-  command -v awg >/dev/null 2>&1 && ok "AmneziaWG tools installed" || bad "AmneziaWG tools missing"
-  command -v unbound >/dev/null 2>&1 && ok "Unbound installed" || bad "Unbound missing"
-  command -v age >/dev/null 2>&1 && ok "age installed" || bad "age missing"
+  if command -v nft >/dev/null 2>&1; then ok "nftables installed"; else bad "nftables missing"; fi
+  if command -v awg >/dev/null 2>&1; then ok "AmneziaWG tools installed"; else bad "AmneziaWG tools missing"; fi
+  if command -v unbound >/dev/null 2>&1; then ok "Unbound installed"; else bad "Unbound missing"; fi
+  if command -v age >/dev/null 2>&1; then ok "age installed"; else bad "age missing"; fi
   run_check "only zram/no disk swap" no_swap_disk
 }
 
