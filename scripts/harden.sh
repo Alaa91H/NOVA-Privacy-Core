@@ -36,11 +36,16 @@ Unattended-Upgrade::Remove-New-Unused-Dependencies "true";
 EOF
 cat >/etc/apt/apt.conf.d/20auto-upgrades <<'EOF'
 APT::Periodic::Update-Package-Lists "1";
-APT::Periodic::Unattended-Upgrade "1";
+APT::Periodic::Unattended-Upgrade "0";
 APT::Periodic::AutocleanInterval "7";
 EOF
-systemctl enable --now apt-daily.timer apt-daily-upgrade.timer 2>/dev/null ||
-  warn "APT security-update timers could not be enabled"
+
+# Package installation/upgrades must never happen outside NOVA's fail-closed
+# maintenance transaction.  Keep apt-daily for metadata refresh only and
+# disable Ubuntu's independent unattended package-upgrade timer.
+systemctl enable --now apt-daily.timer 2>/dev/null ||
+  warn "APT package-list refresh timer could not be enabled"
+systemctl disable --now apt-daily-upgrade.timer 2>/dev/null || true
 
 install -d -m 0755 /etc/systemd/journald.conf.d
 install -m 0644 "$ROOT/config/systemd/90-nova-journald.conf" /etc/systemd/journald.conf.d/90-nova-privacy.conf
