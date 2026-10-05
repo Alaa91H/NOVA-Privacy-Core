@@ -537,6 +537,14 @@ def test_peer_registry_is_data_only():
     assert "NAME=$name" in creator
     assert "PUBLIC_KEY=$client_public" in creator
 
+
+def test_peer_registry_preserves_base64_padding():
+    common = read("scripts/lib/common.sh")
+    assert 'while IFS= read -r line' in common
+    assert 'key="${line%%=*}"' in common
+    assert 'value="${line#*=}"' in common
+    assert "while IFS='=' read -r key value" not in common
+
 def test_version():
     version = read("VERSION").strip()
     assert re.fullmatch(r"\d+\.\d+\.\d+", version), version
@@ -585,6 +593,7 @@ def main():
         test_verified_reopen_is_centralized_and_rollback_safe,
         test_awg_userspace_integrity_is_a_gate,
         test_peer_registry_is_data_only,
+        test_peer_registry_preserves_base64_padding,
         test_version,
     ]
     for test in tests:
