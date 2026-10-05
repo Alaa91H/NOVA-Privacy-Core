@@ -47,7 +47,7 @@ no_adguard_querylog() {
 
 secrets_modes_safe() {
   local bad
-  bad="$(find "$NOVA_ETC" -type f \( -name '*.key' -o -name '*.psk' -o -path '*/peer-secrets/*' -o -name 'server.key' \) -perm /077 2>/dev/null || true)"
+  bad="$(find "$NOVA_ETC" -type f \( -name '*.key' -o -name '*.psk' -o -path '*/peer-secrets/*' -o -name 'server.key' -o -name 'admin.password' \) -perm /077 2>/dev/null || true)"
   [[ -z "$bad" ]]
 }
 
