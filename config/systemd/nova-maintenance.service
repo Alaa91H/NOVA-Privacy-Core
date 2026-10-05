@@ -1,0 +1,13 @@
+[Unit]
+Description=NOVA fail-closed system, kernel and application maintenance
+After=network-online.target nova-firewall.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/nova-privacy/scripts/system-maintenance.sh
+UMask=0077
+Nice=15
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+TimeoutStartSec=45min
