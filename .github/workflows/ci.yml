@@ -19,7 +19,7 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -27,7 +27,7 @@ jobs:
       - name: Install validation tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends shellcheck nftables python3 python3-yaml
+          sudo apt-get install -y --no-install-recommends             shellcheck nftables python3 python3-yaml
 
       - name: Repository test suite
         run: bash tests/run.sh
@@ -50,13 +50,49 @@ jobs:
           docker run --rm --platform linux/amd64             -v "$PWD:/src:ro"             ubuntu:26.04@sha256:da6fc2be547864451aa253836dd926da33623312df4a9a243e35dc877c378a78             bash -Eeuo pipefail -c '
               export DEBIAN_FRONTEND=noninteractive
               apt-get update
-              apt-get install -y --no-install-recommends                 bash git shellcheck nftables python3 ca-certificates                 openssh-server unbound systemd-zram-generator cryptsetup-bin                 jq gh iproute2 procps python3-yaml
+              apt-get install -y --no-install-recommends                 bash git shellcheck nftables python3 python3-yaml ca-certificates                 openssh-server unbound systemd-zram-generator cryptsetup-bin                 curl gnupg jq gh iproute2 procps golang-go gcc libc6-dev
+
               . /etc/os-release
               [[ "$ID" == "ubuntu" && "$VERSION_ID" == "26.04" ]]
-              dpkg --compare-versions "$(dpkg-query -W -f="${Version}" unbound)" ge "1.24.2-1ubuntu2.1"
+
+              unbound_version="$(dpkg-query -W unbound | awk "{print \$2}")"
+              dpkg --compare-versions "$unbound_version" ge "1.24.2-1ubuntu2.1"
+
               ssh -Q kex | grep -qx mlkem768x25519-sha256
               gh attestation verify --help | grep -q -- "--bundle"
               apt-cache show linux-oracle-7.0 >/dev/null
+
+              # Validate the official userspace source path that production uses.
+              target_go="$(
+                curl --proto "=https" --tlsv1.2 -fsSL                   https://proxy.golang.org/github.com/amnezia-vpn/amneziawg-go/v3/@v/list |
+                  grep -E "^v3\.1\.[0-9]+$" |
+                  sort -V |
+                  tail -n1
+              )"
+              [[ -n "$target_go" ]]
+              module="github.com/amnezia-vpn/amneziawg-go/v3@$target_go"
+              download_json="$(
+                GOPROXY=https://proxy.golang.org                 GOSUMDB=sum.golang.org                 GOTOOLCHAIN=local                   go mod download -json "$module"
+              )"
+              module_dir="$(jq -er .Dir <<<"$download_json")"
+              module_sum="$(jq -er .Sum <<<"$download_json")"
+              go_mod_sum="$(jq -er .GoModSum <<<"$download_json")"
+              [[ -d "$module_dir" && "$module_sum" == h1:* && "$go_mod_sum" == h1:* ]]
+
+              mkdir -p /tmp/awg-src /tmp/awg-bin
+              cp -a "$module_dir/." /tmp/awg-src/
+              cat >/tmp/awg-src/version.go <<EOF
+package main
+
+const Version = "$target_go"
+EOF
+              (
+                cd /tmp/awg-src
+                GOPROXY=https://proxy.golang.org                 GOSUMDB=sum.golang.org                 GOTOOLCHAIN=local                 GOMAXPROCS=1                 GOFLAGS="-trimpath -buildvcs=false -p=1"                   go build -o /tmp/awg-bin/amneziawg-go .
+              )
+              [[ -x /tmp/awg-bin/amneziawg-go ]]
+              [[ "$(/tmp/awg-bin/amneziawg-go --version 2>/dev/null | awk "NR==1{print \$2}")" == "$target_go" ]]
+
               mkdir -p /work
               cp -a /src/. /work/
               cd /work
