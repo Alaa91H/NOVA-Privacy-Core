@@ -27,11 +27,11 @@ for f in "$NOVA_ETC"/peers.d/*.env; do
   load_peer_registry "$f"
   cat >>"$candidate" <<EOF
 
-# NOVA_PEER:$NAME
+# NOVA_PEER:$PEER_NAME
 [Peer]
-PublicKey = $PUBLIC_KEY
-PresharedKey = $(cat "$PSK_FILE")
-AllowedIPs = $IP/32
+PublicKey = $PEER_PUBLIC_KEY
+PresharedKey = $(cat "$PEER_PSK_FILE")
+AllowedIPs = $PEER_IP/32
 EOF
 done
 
