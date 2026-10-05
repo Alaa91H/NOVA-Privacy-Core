@@ -60,6 +60,9 @@ chmod 0600 "$peer"
 rollback() {
   rm -f "$peer"
   rm -rf "$secret_dir"
+  rm -f "/root/nova-peers/$name.conf" "/root/nova-peers/$name.qr.png"
+  "$ROOT/scripts/rebuild-awg-peers.sh" >/dev/null 2>&1 || true
+  "$ROOT/scripts/render-firewall.sh" >/dev/null 2>&1 || true
 }
 trap rollback ERR
 
