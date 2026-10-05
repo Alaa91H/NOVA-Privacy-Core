@@ -19,7 +19,7 @@ source /etc/os-release
 
 apt-get update
 apt-get install -y --no-install-recommends \
-  ca-certificates curl jq gnupg openssl python3 \
+  ca-certificates curl jq gnupg openssl python3 util-linux \
   nftables unbound dns-root-data bind9-dnsutils \
   openssh-server qrencode zram-tools age apache2-utils \
   "linux-headers-$(uname -r)"
