@@ -47,8 +47,20 @@ no_adguard_querylog() {
 
 secrets_modes_safe() {
   local bad
-  bad="$(find "$NOVA_ETC" -type f \( -name '*.key' -o -name '*.psk' -o -path '*/peer-secrets/*' -o -name 'server.key' -o -name 'admin.password' \) -perm /077 2>/dev/null || true)"
+  bad="$(find "$NOVA_ETC" -type f \( -name '*.key' -o -name '*.psk' -o -path '*/peer-secrets/*' -o -name 'server.key' -o -name 'admin.password' -o -name 'awg.params' \) -perm /077 2>/dev/null || true)"
   [[ -z "$bad" ]]
+}
+
+
+doh_guard_ready() {
+  local file="$NOVA_STATE/doh/doh-ipv4.txt" count sample
+  systemctl is-active --quiet nova-doh-ips.timer || return 1
+  [[ -s "$file" ]] || return 1
+  count="$(grep -cvE '^[[:space:]]*(#|$)' "$file" || true)"
+  (( count >= 100 )) || return 1
+  sample="$(grep -vE '^[[:space:]]*(#|$)' "$file" | head -n1)"
+  [[ -n "$sample" ]] || return 1
+  nft list set inet nova doh4 2>/dev/null | grep -Fq "$sample"
 }
 
 check "nft input defaults to DROP" chain_policy_drop input
@@ -63,6 +75,7 @@ check "PRIVATE DNS answers" private_dns_responds
 check "STRICT DNS answers" strict_dns_responds
 check "AdGuard query history disabled" no_adguard_querylog
 check "stored private key material is mode-safe" secrets_modes_safe
+check "STRICT encrypted-DNS IP guard is active" doh_guard_ready
 check "public DNS/DoT not explicitly accepted on WAN" bash -c "! nft list chain inet nova input | grep -E 'iifname \"$NOVA_WAN_IF\".*dport (53|853)' >/dev/null"
 
 if [[ "$fail" -ne 0 ]]; then
