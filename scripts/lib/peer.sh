@@ -32,7 +32,8 @@ PY
 }
 
 load_awg_params() {
-  # shellcheck disable=SC1090
+  # Runtime-generated and root-owned; intentionally not present in the source tree.
+  # shellcheck disable=SC1091
   source "$NOVA_ETC/awg.params"
 }
 
