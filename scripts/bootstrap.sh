@@ -34,7 +34,7 @@ packages=(
   openssh-server qrencode age apache2-utils
   apparmor apparmor-utils unattended-upgrades needrestart
   systemd-zram-generator cryptsetup-bin dmsetup
-  dkms iproute2 procps
+  dkms iproute2 procps shellcheck
 )
 apt-get install -y --no-install-recommends "${packages[@]}"
 
