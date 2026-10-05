@@ -13,7 +13,7 @@ fi
 export DEBIAN_FRONTEND=noninteractive
 
 apt-get update
-apt-get install -y --no-install-recommends   bash git shellcheck nftables python3 python3-yaml ca-certificates   openssh-server unbound systemd-zram-generator cryptsetup-bin   curl gnupg jq gh iproute2 procps golang-go gcc libc6-dev
+apt-get install -y --no-install-recommends   bash git shellcheck nftables python3 python3-yaml ca-certificates   openssh-server unbound systemd-zram-generator cryptsetup-bin   curl gnupg jq iproute2 procps golang-go gcc libc6-dev
 
 # Exact platform baseline.
 # shellcheck disable=SC1091
@@ -25,8 +25,12 @@ unbound_version="$(dpkg-query -W unbound | awk '{print $2}')"
 dpkg --compare-versions "$unbound_version" ge "1.24.2-1ubuntu2.1"
 
 ssh -Q kex | grep -qx mlkem768x25519-sha256
-gh attestation verify --help | grep -q -- '--bundle'
 apt-cache show linux-oracle-7.0 >/dev/null
+
+# Ubuntu's gh package may lag attestation support. Validate the same signed
+# official GitHub CLI repository path used by production.
+bash "$ROOT/scripts/install-github-cli.sh"
+gh attestation verify --help | grep -q -- '--bundle'
 
 # Validate the exact third-party package trust boundary used by production.
 expected_fpr="75C9DD72C799870E310542E24166F2C257290828"
