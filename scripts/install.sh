@@ -8,6 +8,21 @@ source "$SOURCE_ROOT/scripts/lib/common.sh"
 require_root
 load_defaults
 
+# Serialize manual installs/upgrades with all timer-driven maintenance jobs.
+acquire_nova_lock
+
+existing_install=0
+if [[ -r "$NOVA_ETC/nova.env" ]]; then
+  existing_install=1
+  load_runtime
+  if [[ "${NOVA_TRAFFIC_GATE:-closed}" == "open" &&
+        -x "$NOVA_INSTALL_ROOT/scripts/render-firewall.sh" ]]; then
+    log "existing production node detected; closing protected forwarding before upgrade"
+    write_runtime_kv NOVA_TRAFFIC_GATE closed
+    NOVA_TRAFFIC_GATE=closed "$NOVA_INSTALL_ROOT/scripts/render-firewall.sh"
+  fi
+fi
+
 if [[ "$SOURCE_ROOT" != "$NOVA_INSTALL_ROOT" ]]; then
   log "staging NOVA into $NOVA_INSTALL_ROOT"
   mkdir -p "$NOVA_INSTALL_ROOT"
@@ -85,9 +100,10 @@ NEXT STEPS:
   3. Confirm a recent handshake:
        sudo privacyctl status
 
-  4. Run the leak/security checks:
+  4. Run the pre-activation checks:
+       sudo privacyctl health
        sudo privacyctl leaks test
-       sudo privacyctl acceptance server
+       sudo privacyctl acceptance preflight
 
   5. Activate production forwarding atomically:
        sudo privacyctl activate
@@ -100,5 +116,7 @@ NEXT STEPS:
        sudo privacyctl acceptance server
 
 If /var/run/reboot-required exists, reboot first and rerun the checks.
+A manual upgrade of an already-active node intentionally leaves the traffic gate
+CLOSED until you run "privacyctl activate" again.
 Do not close your original bootstrap SSH session before the management peer succeeds.
 EOF
