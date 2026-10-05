@@ -26,11 +26,7 @@ close_gate() {
 
 reopen_gate() {
   [[ "$previous_gate" == "open" ]] || return 0
-  "$ROOT/src/privacyctl" health
-  "$ROOT/scripts/verify-leaks.sh"
-  write_runtime_kv NOVA_TRAFFIC_GATE open
-  NOVA_TRAFFIC_GATE=open "$ROOT/scripts/render-firewall.sh"
-  log "maintenance verification passed; protected forwarding reopened"
+  "$ROOT/scripts/reopen-verified.sh"
 }
 
 export DEBIAN_FRONTEND=noninteractive
