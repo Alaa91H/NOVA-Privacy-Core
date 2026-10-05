@@ -27,6 +27,27 @@ fi
 python3 -m py_compile scripts/*.py 2>/dev/null || bad "Python compile"
 [[ "$fail" -eq 0 ]] && ok "Python compile"
 
+
+# GitHub Actions are executable dependencies.  Require immutable commit SHAs,
+# not floating tags such as @v4 or @main.
+actions_bad=0
+while IFS= read -r line; do
+  use="${line#*uses: }"
+  use="${use%%#*}"
+  use="${use//[[:space:]]/}"
+  [[ "$use" == ./* ]] && continue
+  ref="${use##*@}"
+  if [[ ! "$ref" =~ ^[0-9a-fA-F]{40}$ ]]; then
+    printf 'FAIL  unpinned GitHub Action: %s\n' "$use" >&2
+    actions_bad=1
+  fi
+done < <(grep -RhsE '^[[:space:]]*uses:[[:space:]]+' .github/workflows 2>/dev/null || true)
+if [[ "$actions_bad" -eq 0 ]]; then
+  ok "GitHub Actions pinned by full commit SHA"
+else
+  fail=1
+fi
+
 # Secrets and dangerous installer patterns.
 if git grep -nE -- '-----BEGIN (OPENSSH|RSA|EC|DSA|PRIVATE) PRIVATE KEY-----|PresharedKey[[:space:]]*=[[:space:]]*[A-Za-z0-9+/]{20,}|PrivateKey[[:space:]]*=[[:space:]]*[A-Za-z0-9+/]{20,}' -- ':!docs/*' ':!README.md' >/tmp/nova-secret-scan.$$ 2>/dev/null; then
   cat /tmp/nova-secret-scan.$$ >&2
