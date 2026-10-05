@@ -86,23 +86,24 @@ Do not close the original SSH session until a management peer has completed a ha
 
 A successful installer is **not** enough to claim full production acceptance.
 
-On the Oracle host:
+Before moving administration into the tunnel:
 
 ```bash
 sudo privacyctl acceptance preflight
-sudo privacyctl acceptance server
+sudo privacyctl health
 sudo privacyctl leaks test
 sudo privacyctl features probe
 ```
 
-Then create/import a management peer, connect through it, and run:
+Then create/import a management peer and confirm a recent handshake. From that protected management path:
 
 ```bash
 sudo privacyctl lockdown
 sudo privacyctl acceptance server
+sudo privacyctl leaks test
 ```
 
-The second acceptance run must prove the bootstrap public SSH firewall rule is gone.
+`acceptance server` is intentionally a **post-lockdown** production gate: it must prove the temporary public SSH firewall rule is gone.
 
 ## 6. Physical-client gates
 
