@@ -12,12 +12,9 @@ acquire_nova_lock
 marker="$NOVA_STATE/maintenance/reopen-after-boot"
 [[ -f "$marker" ]] || exit 0
 
-# The early firewall reads the persisted closed gate.  Only reopen after every
-# local privacy/security invariant is proven again on the newly booted kernel.
-"$ROOT/src/privacyctl" health
-"$ROOT/scripts/verify-leaks.sh"
-
-write_runtime_kv NOVA_TRAFFIC_GATE open
-NOVA_TRAFFIC_GATE=open "$ROOT/scripts/render-firewall.sh"
+# The early firewall reads the persisted closed gate.  The common reopen helper
+# verifies the new kernel, OS/security baseline, services, leak controls and
+# final OPEN-state acceptance before committing the transition.
+"$ROOT/scripts/reopen-verified.sh"
 rm -f "$marker"
-log "post-boot validation passed; protected forwarding reopened"
+log "post-boot validation passed"
