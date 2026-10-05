@@ -11,7 +11,9 @@ http:
       - POST /dns-query
       - GET /dns-query/{ClientID}
       - POST /dns-query/{ClientID}
-users: []
+users:
+  - name: nova-admin
+    password: "@@ADMIN_HASH@@"
 auth_attempts: 5
 block_auth_min: 15
 
