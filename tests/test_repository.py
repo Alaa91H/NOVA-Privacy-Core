@@ -64,6 +64,21 @@ def test_dns_privacy():
     assert "NOVA Encrypted DNS Bypass" in adg
     assert "enabled: @@DOH_FILTER_ENABLED@@" in adg
 
+def test_adguard_least_privilege_auth():
+    bootstrap = read("scripts/bootstrap.sh")
+    installer = read("scripts/install-dns.sh")
+    template = read("config/adguard/profile.yaml.in")
+    assert "apache2-utils" in bootstrap
+    assert 'chown root:nova-dns "$NOVA_ETC"' in bootstrap
+    assert 'chmod 0710 "$NOVA_ETC"' in bootstrap
+    assert "users:\n  - name: nova-admin" in template
+    assert 'password: "@@ADMIN_HASH@@"' in template
+    assert "htpasswd -bnBC 12" in installer
+    assert 'chmod 0600 "$admin_secret"' in installer
+    assert 'chown root:nova-dns "$cfg"' in installer
+    assert 'chmod 0640 "$cfg"' in installer
+
+
 def test_release_authenticity():
     defaults = read("config/defaults.env")
     installer = read("scripts/install-dns.sh")
@@ -143,6 +158,7 @@ def main():
         test_lockdown_precedes_conntrack_accept,
         test_early_firewall_boot_order,
         test_dns_privacy,
+        test_adguard_least_privilege_auth,
         test_release_authenticity,
         test_strict_doh_guard,
         test_awg_safety,
