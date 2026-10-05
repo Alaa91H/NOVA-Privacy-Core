@@ -24,6 +24,13 @@ def test_firewall():
     assert 'udp sport 68 udp dport 67 accept' in text
     assert 'udp sport 67 udp dport 68 accept' in text
 
+def test_early_firewall_boot_order():
+    unit = read("config/systemd/nova-firewall.service")
+    assert "DefaultDependencies=no" in unit
+    assert "Before=network-pre.target" in unit
+    assert "WantedBy=network-pre.target" in unit
+    assert "After=local-fs.target" in unit
+
 def test_dns_privacy():
     adg = read("config/adguard/profile.yaml.in")
     unbound = read("config/unbound/nova.conf.in")
@@ -100,6 +107,7 @@ def test_version():
 def main():
     tests = [
         test_firewall,
+        test_early_firewall_boot_order,
         test_dns_privacy,
         test_release_authenticity,
         test_awg_safety,
