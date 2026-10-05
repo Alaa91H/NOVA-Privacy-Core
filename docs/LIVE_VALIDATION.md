@@ -2,19 +2,29 @@
 
 Repository CI proves syntax, static policy invariants, renderer behavior, and supply-chain checks. It cannot prove a physical network path.
 
-## One-command server acceptance
+## Server acceptance sequence
 
-On the Oracle host:
+Before the management peer is connected:
 
 ```bash
+sudo privacyctl acceptance preflight
+sudo privacyctl health
+```
+
+After the management peer has a recent handshake:
+
+```bash
+sudo privacyctl lockdown
 sudo privacyctl acceptance server
 ```
 
-For the full report, including remaining physical-client gates:
+For the full post-lockdown report, including remaining physical-client gates:
 
 ```bash
 sudo privacyctl acceptance report
 ```
+
+The `server` and `report` modes intentionally fail while the temporary public SSH bootstrap rule still exists.
 
 ## Optional feature probe
 
