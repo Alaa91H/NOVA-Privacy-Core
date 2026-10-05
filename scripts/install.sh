@@ -11,9 +11,7 @@ load_defaults
 # Serialize manual installs/upgrades with all timer-driven maintenance jobs.
 acquire_nova_lock
 
-existing_install=0
 if [[ -r "$NOVA_ETC/nova.env" ]]; then
-  existing_install=1
   load_runtime
   if [[ "${NOVA_TRAFFIC_GATE:-closed}" == "open" &&
         -x "$NOVA_INSTALL_ROOT/scripts/render-firewall.sh" ]]; then
