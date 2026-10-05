@@ -117,6 +117,67 @@ valid_profile() {
   esac
 }
 
+
+valid_peer_ip_for_role() {
+  local ip="$1" management="$2"
+  python3 - "$ip" "$management" "$NOVA_VPN_NET" "$NOVA_MGMT_NET" <<'PY'
+import ipaddress,sys
+ip=ipaddress.ip_address(sys.argv[1])
+if ip.version != 4:
+    raise SystemExit(1)
+management=sys.argv[2] == "1"
+net=ipaddress.ip_network(sys.argv[4] if management else sys.argv[3], strict=False)
+if ip not in net or ip == net.network_address or ip == net.broadcast_address:
+    raise SystemExit(1)
+PY
+}
+
+load_peer_registry() {
+  local file="$1" key value perm owner expected
+  [[ -f "$file" && ! -L "$file" ]] || die "invalid peer registry file: $file"
+
+  owner="$(stat -c %u "$file")"
+  perm="$(stat -c %a "$file")"
+  [[ "$owner" == "0" ]] || die "peer registry must be root-owned: $file"
+  (( (8#$perm & 077) == 0 )) || die "peer registry must not be group/world accessible: $file"
+
+  unset NAME IP PROFILE MANAGEMENT PUBLIC_KEY PSK_FILE
+  while IFS='=' read -r key value; do
+    [[ -n "$key" ]] || continue
+    [[ "$key" =~ ^[A-Z_]+$ ]] || die "invalid peer registry key syntax in $file"
+    case "$key" in
+      NAME|IP|PROFILE|MANAGEMENT|PUBLIC_KEY|PSK_FILE)
+        printf -v "$key" '%s' "$value"
+        ;;
+      *)
+        die "unknown peer registry key '$key' in $file"
+        ;;
+    esac
+  done <"$file"
+
+  [[ -n "${NAME:-}" && -n "${IP:-}" && -n "${PROFILE:-}" &&
+     -n "${MANAGEMENT:-}" && -n "${PUBLIC_KEY:-}" && -n "${PSK_FILE:-}" ]] ||
+    die "incomplete peer registry: $file"
+
+  valid_peer_name "$NAME" || die "invalid peer name in registry: $file"
+  valid_profile "$PROFILE" || die "invalid peer profile in registry: $file"
+  [[ "$MANAGEMENT" == "0" || "$MANAGEMENT" == "1" ]] ||
+    die "invalid management flag in registry: $file"
+  [[ "$PUBLIC_KEY" =~ ^[A-Za-z0-9+/]{43}=$ ]] ||
+    die "invalid peer public key encoding in registry: $file"
+  valid_peer_ip_for_role "$IP" "$MANAGEMENT" ||
+    die "peer IP does not belong to its assigned NOVA network: $file"
+
+  expected="$NOVA_ETC/peer-secrets/$NAME/psk"
+  [[ "$PSK_FILE" == "$expected" ]] ||
+    die "unexpected peer PSK path in registry: $file"
+  [[ -f "$PSK_FILE" && ! -L "$PSK_FILE" ]] ||
+    die "peer PSK file missing or unsafe: $PSK_FILE"
+
+  [[ "$(basename "$file")" == "$NAME.env" ]] ||
+    die "peer registry filename/name mismatch: $file"
+}
+
 write_runtime_kv() {
   local key="$1" value="$2" file="${NOVA_ETC}/nova.env"
   mkdir -p "$NOVA_ETC"
