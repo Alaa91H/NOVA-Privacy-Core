@@ -243,11 +243,19 @@ def test_host_hardening_baseline():
 def test_awg31_is_capability_probed():
     installer = read("scripts/install-awg.sh")
     defaults = read("config/defaults.env")
-    assert "probe_awg31()" in installer
+    unit = read("config/systemd/nova-awg.service.in")
+
+    assert "probe_awg31_userspace()" in installer
     assert 'awg setconf "$dev" "$cfg"' in installer
-    assert "amneziawg-dkms" in installer
-    assert "failed 3.1 capability probe" in installer
+    assert "github.com/amnezia-vpn/amneziawg-go/v3" in installer
+    assert "proxy.golang.org" in installer
+    assert "GOSUMDB=\"sum.golang.org\"" in installer
+    assert "NOVA_AWG_BACKEND=userspace" in installer
+    assert "amneziawg-dkms" in installer and "Pin-Priority: -1" in installer
+    assert "NOVA_AWG_BACKEND=${NOVA_AWG_BACKEND:-userspace}" in defaults
     assert "NOVA_AWG_EXPERIMENTAL_RANDOM_TRAILERS=${NOVA_AWG_EXPERIMENTAL_RANDOM_TRAILERS:-off}" in defaults
+    assert "WG_QUICK_USERSPACE_IMPLEMENTATION=/usr/local/sbin/amneziawg-go" in unit
+    assert "modprobe amneziawg" not in unit
 
 
 def test_firewall_service_starts_immediately():
@@ -351,9 +359,13 @@ def test_third_party_repo_is_constrained():
     installer = read("scripts/install-awg.sh")
     assert "Pin: release o=LP-PPA-amnezia" in installer
     assert "Pin-Priority: 1" in installer
-    assert "Package: amneziawg amneziawg-tools amneziawg-dkms" in installer
+    assert "Package: amneziawg-tools" in installer
+    assert "Package: amneziawg amneziawg-dkms" in installer
+    assert "Pin-Priority: -1" in installer
+    assert "apt-get -o DPkg::Lock::Timeout=600 install -y --no-install-recommends amneziawg-tools" in installer
     assert "NOVA_AWG_TOOLS_PACKAGE_VERSION" in installer
-    assert "NOVA_AWG_DKMS_PACKAGE_VERSION" in installer
+    assert "NOVA_AWG_GO_INSTALLED_VERSION" in installer
+    assert "NOVA_AWG_GO_SHA256" in installer
 
 
 def test_live_acceptance_is_single_canonical_script():
@@ -456,6 +468,19 @@ def test_privacyctl_is_single_canonical_control_plane():
     assert ctl.count("cmd_activate() {") == 1
     assert "valid_cidr" in ctl
 
+
+def test_ubuntu_awg_path_avoids_known_kernel_module_risk():
+    installer = read("scripts/install-awg.sh")
+    service = read("config/systemd/nova-awg.service.in")
+    defaults = read("config/defaults.env")
+
+    assert "production supports only NOVA_AWG_BACKEND=userspace" in installer
+    assert "apt-get" in installer and "amneziawg-tools" in installer
+    assert "amneziawg-dkms" in installer and "Pin-Priority: -1" in installer
+    assert "amneziawg-go" in service
+    assert "ExecStartPre=/sbin/modprobe amneziawg" not in service
+    assert "NOVA_AWG_GO_VERSION=${NOVA_AWG_GO_VERSION:-auto}" in defaults
+
 def test_version():
     version = read("VERSION").strip()
     assert re.fullmatch(r"\d+\.\d+\.\d+", version), version
@@ -500,6 +525,7 @@ def main():
         test_activation_gate_has_no_unverified_open_command,
         test_bootstrap_is_release_first_and_not_pipe_to_shell,
         test_privacyctl_is_single_canonical_control_plane,
+        test_ubuntu_awg_path_avoids_known_kernel_module_risk,
         test_version,
     ]
     for test in tests:
