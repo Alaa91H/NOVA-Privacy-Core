@@ -87,7 +87,7 @@ valid_peer_name() {
 
 valid_profile() {
   case "$1" in
-    COMPAT|PRIVATE|STRICT|TOR-ANON|MAX-MIX|LOCKDOWN) return 0 ;;
+    COMPAT|PRIVATE|STRICT|LOCKDOWN) return 0 ;;
     *) return 1 ;;
   esac
 }
