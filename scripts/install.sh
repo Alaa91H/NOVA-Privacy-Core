@@ -36,6 +36,9 @@ bash "$ROOT/scripts/configure-awg.sh" "${NOVA_AWG_MODE:-balanced}"
 log "T13-T17 DNS privacy/filtering stack"
 bash "$ROOT/scripts/install-dns.sh"
 
+log "T18 STRICT encrypted-DNS bypass guard"
+bash "$ROOT/scripts/install-doh-guard.sh"
+
 log "refreshing firewall after service installation"
 bash "$ROOT/scripts/render-firewall.sh"
 
