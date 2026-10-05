@@ -16,8 +16,7 @@ valid_peer_name "$name" || die "invalid peer name"
 peer="$(peer_path "$name")"
 [[ -f "$peer" ]] || die "peer not found: $name"
 
-# shellcheck disable=SC1090
-source "$peer"
+load_peer_registry "$peer"
 old_peer="$(mktemp)"
 old_psk="$(mktemp)"
 cp "$peer" "$old_peer"
