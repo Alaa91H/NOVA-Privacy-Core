@@ -7,6 +7,7 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/scripts/lib/common.sh"
 require_root
 load_runtime
+acquire_nova_lock
 require_cmd curl
 require_cmd python3
 
@@ -14,7 +15,9 @@ state_dir="$NOVA_STATE/doh"
 current="$state_dir/doh-ipv4.txt"
 tmp="$(mktemp)"
 validated="$(mktemp)"
-trap 'rm -f "$tmp" "$validated"' EXIT
+previous="$(mktemp)"
+had_previous=0
+trap 'rm -f "$tmp" "$validated" "$previous"' EXIT
 install -d -m 0755 "$state_dir"
 
 curl --proto '=https' --tlsv1.2 -fsSL   --connect-timeout 10 --max-time 60   "$NOVA_HAGEZI_DOH_IPS" -o "$tmp"
@@ -48,12 +51,31 @@ if [[ -s "$current" ]] && cmp -s "$current" "$validated"; then
   exit 0
 fi
 
+if [[ -s "$current" ]]; then
+  cp -a "$current" "$previous"
+  had_previous=1
+fi
+
 install -m 0644 "$validated" "$current"
 
+rollback_list() {
+  if [[ "$had_previous" -eq 1 ]]; then
+    install -m 0644 "$previous" "$current"
+  else
+    rm -f "$current"
+  fi
+}
+
 # Re-render only after a complete, validated list has replaced the previous
-# snapshot.  If download/validation fails, set -e preserves the last good set.
+# snapshot.  If policy generation/apply fails, restore the last-good list and
+# regenerate the last-good firewall file so the next timer run can recover.
 if nft list table inet nova >/dev/null 2>&1; then
-  "$ROOT/scripts/render-firewall.sh"
+  if ! "$ROOT/scripts/render-firewall.sh"; then
+    warn "new encrypted-DNS set failed firewall validation/apply; restoring last-good set"
+    rollback_list
+    "$ROOT/scripts/render-firewall.sh" || warn "could not regenerate last-good firewall file; active nft transaction should remain unchanged"
+    die "encrypted-DNS IP update rolled back"
+  fi
 fi
 
 log "encrypted-DNS IP set updated"
