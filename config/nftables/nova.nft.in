@@ -23,6 +23,11 @@ table inet nova {
     elements = { @@LOCKDOWN_ELEMENTS@@ }
   }
 
+  set doh4 {
+    type ipv4_addr
+    elements = { @@DOH_IP_ELEMENTS@@ }
+  }
+
   chain dns_redirect {
     type nat hook prerouting priority dstnat; policy accept;
 
@@ -41,6 +46,7 @@ table inet nova {
 
     ct state invalid drop
     iifname "@@VPN_IF@@" ip saddr @lockdown4 drop
+    iifname "@@VPN_IF@@" ip saddr @strict4 ip daddr @doh4 drop
     ct state established,related accept
     iifname "lo" accept
 
