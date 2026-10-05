@@ -38,7 +38,7 @@ apt-get update
 apt-get -y full-upgrade
 
 packages=(
-  ca-certificates curl jq gnupg openssl python3 util-linux rsync sudo git gh
+  ca-certificates curl jq gnupg openssl python3 util-linux rsync sudo git
   nftables unbound dns-root-data bind9-dnsutils
   openssh-server qrencode age apache2-utils
   apparmor apparmor-utils unattended-upgrades needrestart
@@ -111,6 +111,11 @@ write_runtime_kv NOVA_BOOTSTRAP_SSH_CIDR "$bootstrap_cidr"
 write_runtime_kv NOVA_REPOSITORY "$NOVA_REPOSITORY"
 write_runtime_kv NOVA_REPOSITORY_URL "$NOVA_REPOSITORY_URL"
 write_runtime_kv NOVA_OS_BASELINE "ubuntu-26.04"
+
+# Ubuntu's archive can lag GitHub CLI features required for provenance
+# verification. Use GitHub's signed official repository with an explicit
+# package boundary and pinned keyring trust material.
+bash "$ROOT/scripts/install-github-cli.sh"
 
 if [[ "$first_install" -eq 1 ]]; then
   # No protected forwarding is permitted until a real management peer exists,
