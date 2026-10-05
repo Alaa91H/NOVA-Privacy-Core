@@ -19,7 +19,7 @@ peer="$(peer_path "$name")"
 [[ -f "$peer" ]] || die "peer not found: $name"
 
 load_peer_registry "$peer"
-if [[ "$profile" == "LOCKDOWN" && "${MANAGEMENT:-0}" == "1" ]]; then
+if [[ "$profile" == "LOCKDOWN" && "${PEER_MANAGEMENT:-0}" == "1" ]]; then
   die "management peers cannot be placed in LOCKDOWN; revoke management access explicitly instead"
 fi
 
