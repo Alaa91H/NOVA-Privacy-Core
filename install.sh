@@ -3,6 +3,8 @@ set -Eeuo pipefail
 umask 077
 
 REPO="Alaa91H/NOVA-Privacy-Core"
+GH_KEYRING_SHA256="6084d5d7bd8e288441e0e94fc6275570895da18e6751f70f057485dc2d1a811b"
+GH_KEY_FPRS="2C6106201985B60E6C7AC87323F3D4EA75716059,7F38BBB59D064DBCB3D84D725612B36462313325"
 
 if [[ ${EUID:-$(id -u)} -ne 0 ]]; then
   printf 'Run this bootstrap installer as root, for example: sudo bash install.sh\n' >&2
@@ -22,7 +24,68 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y --no-install-recommends   ca-certificates curl gh jq tar gzip coreutils python3 git
+apt-get install -y --no-install-recommends   ca-certificates curl gnupg jq tar gzip coreutils python3 git
+
+install_official_gh() {
+  local keyring actual arch candidate trusted found allowed
+  keyring="$(mktemp)"
+  trap 'rm -f "$keyring"' RETURN
+
+  curl --proto '=https' --tlsv1.2 -fsSL     --connect-timeout 10 --max-time 30     https://cli.github.com/packages/githubcli-archive-keyring.gpg     -o "$keyring"
+
+  actual="$(sha256sum "$keyring" | awk '{print $1}')"
+  [[ "$actual" == "$GH_KEYRING_SHA256" ]] || {
+    printf 'GitHub CLI keyring SHA-256 mismatch.\n' >&2
+    return 1
+  }
+
+  IFS=',' read -r -a allowed_fprs <<<"$GH_KEY_FPRS"
+  trusted=0
+  while read -r found; do
+    for allowed in "${allowed_fprs[@]}"; do
+      [[ "$found" == "${allowed^^}" ]] && trusted=1
+    done
+  done < <(
+    gpg --batch --show-keys --with-colons "$keyring" 2>/dev/null |
+      awk -F: '$1=="fpr"{print toupper($10)}'
+  )
+  [[ "$trusted" -eq 1 ]] || {
+    printf 'GitHub CLI keyring fingerprint not in bootstrap trust set.\n' >&2
+    return 1
+  }
+
+  install -d -m 0755 /etc/apt/keyrings /etc/apt/sources.list.d /etc/apt/preferences.d
+  install -m 0644 "$keyring" /etc/apt/keyrings/githubcli-archive-keyring.gpg
+  arch="$(dpkg --print-architecture)"
+
+  cat >/etc/apt/sources.list.d/github-cli.list <<EOF
+deb [arch=$arch signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main
+EOF
+
+  cat >/etc/apt/preferences.d/nova-github-cli <<'EOF'
+Package: *
+Pin: origin cli.github.com
+Pin-Priority: 1
+
+Package: gh
+Pin: origin cli.github.com
+Pin-Priority: 700
+EOF
+
+  apt-get update
+  candidate="$(apt-cache policy gh | awk '/Candidate:/{print $2; exit}')"
+  [[ -n "$candidate" && "$candidate" != "(none)" ]] || {
+    printf 'Official GitHub CLI repository has no gh candidate.\n' >&2
+    return 1
+  }
+  apt-get install -y --no-install-recommends gh
+  gh attestation verify --help 2>/dev/null | grep -q -- '--bundle' || {
+    printf 'Installed GitHub CLI lacks attestation bundle support.\n' >&2
+    return 1
+  }
+}
+
+install_official_gh
 
 tmp="$(mktemp -d /tmp/nova-bootstrap.XXXXXX)"
 trap 'rm -rf "$tmp"' EXIT
