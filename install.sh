@@ -81,7 +81,8 @@ EOF
     return 1
   }
   apt-get install -y --no-install-recommends gh
-  gh attestation verify --help 2>/dev/null | grep -q -- '--bundle' || {
+  gh_attestation_help="$(gh attestation verify --help 2>&1 || true)"
+  grep -q -- '--bundle' <<<"$gh_attestation_help" || {
     printf 'Installed GitHub CLI lacks attestation bundle support.\n' >&2
     return 1
   }
