@@ -14,12 +14,15 @@ def test_firewall():
     for chain in ("input", "forward", "output"):
         pattern = rf"chain {chain} .*?policy drop;"
         assert re.search(pattern, text, re.S), f"{chain} is not default-drop"
-    assert "@LOCKDOWN_ELEMENTS@" in text
+    assert "@@LOCKDOWN_ELEMENTS@@" in text
     assert "tcp dport 853 drop" in text
     assert "udp dport 853 drop" in text
     assert "masquerade" in text
     assert 'tcp dport 22 accept' in text
     assert '@@BOOTSTRAP_SSH_RULE@@' in text
+    # A default-drop host firewall must not silently break the cloud DHCP lease.
+    assert 'udp sport 68 udp dport 67 accept' in text
+    assert 'udp sport 67 udp dport 68 accept' in text
 
 def test_dns_privacy():
     adg = read("config/adguard/profile.yaml.in")
@@ -33,6 +36,16 @@ def test_dns_privacy():
     assert "harden-dnssec-stripped: yes" in unbound
     assert "hide-version: yes" in unbound
     assert "do-ip6: no" in unbound
+
+def test_release_authenticity():
+    defaults = read("config/defaults.env")
+    installer = read("scripts/install-dns.sh")
+    assert "NOVA_ADGUARD_GPG_FPR=28645AC9776EC4C00BCE2AFC0FE641E7235E2EC6" in defaults
+    assert "checksums.txt" in installer
+    assert "--verify" in installer
+    assert "AdGuardHome.sig" in installer
+    assert "fingerprint mismatch" in installer
+    assert "unsafe archive path" in installer
 
 def test_awg_safety():
     cfg = read("scripts/configure-awg.sh")
@@ -48,7 +61,7 @@ def test_peer_key_separation():
     peer = read("scripts/create-peer.sh")
     helper = read("scripts/lib/peer.sh")
     assert "client_private" in peer
-    registry_block = re.search(r"cat >\"\$peer\" <<EOF(.*?)EOF", peer, re.S)
+    registry_block = re.search(r'cat >"\$peer" <<EOF(.*?)EOF', peer, re.S)
     assert registry_block, "peer registry heredoc not found"
     assert "client_private" not in registry_block.group(1)
     assert "PresharedKey = $psk" in helper
@@ -72,9 +85,13 @@ def test_no_tls_mitm():
         "README.md", "docs/THREAT_MODEL.md", "docs/CRYPTO_POLICY.md"
     ))
     assert "end-to-end" in combined.lower()
-    # No configuration directory may contain a private CA.
     assert not list((ROOT / "config").rglob("*.crt"))
     assert not list((ROOT / "config").rglob("*.pem"))
+
+def test_secret_ignores():
+    text = read(".gitignore")
+    for marker in ("*.key", "*.psk", "*.p12", "*.pfx", "*.tar.age", "secrets/"):
+        assert marker in text, f"missing gitignore rule: {marker}"
 
 def test_version():
     version = read("VERSION").strip()
@@ -84,10 +101,12 @@ def main():
     tests = [
         test_firewall,
         test_dns_privacy,
+        test_release_authenticity,
         test_awg_safety,
         test_peer_key_separation,
         test_installer_order,
         test_no_tls_mitm,
+        test_secret_ignores,
         test_version,
     ]
     for test in tests:
