@@ -18,6 +18,11 @@ table inet nova {
     elements = { @@MGMT_ELEMENTS@@ }
   }
 
+  set lockdown4 {
+    type ipv4_addr
+    elements = { @@LOCKDOWN_ELEMENTS@@ }
+  }
+
   chain dns_redirect {
     type nat hook prerouting priority dstnat; policy accept;
 
@@ -44,6 +49,7 @@ table inet nova {
     iifname "@@WAN_IF@@" udp dport @@AWG_PORT@@ accept
 @@BOOTSTRAP_SSH_RULE@@
 
+    iifname "@@VPN_IF@@" ip saddr @lockdown4 drop
     iifname "@@VPN_IF@@" ip saddr { @@VPN_NET@@, @@MGMT_NET@@ } udp dport { @@PRIVATE_DNS_PORT@@, @@STRICT_DNS_PORT@@, @@UNBOUND_PORT@@ } accept
     iifname "@@VPN_IF@@" ip saddr { @@VPN_NET@@, @@MGMT_NET@@ } tcp dport { @@PRIVATE_DNS_PORT@@, @@STRICT_DNS_PORT@@, @@UNBOUND_PORT@@ } accept
 
@@ -56,6 +62,7 @@ table inet nova {
     ct state invalid drop
     ct state established,related accept
 
+    iifname "@@VPN_IF@@" ip saddr @lockdown4 drop
     iifname "@@VPN_IF@@" ip saddr { @@VPN_NET@@, @@MGMT_NET@@ } tcp dport 853 drop
     iifname "@@VPN_IF@@" ip saddr { @@VPN_NET@@, @@MGMT_NET@@ } udp dport 853 drop
 
