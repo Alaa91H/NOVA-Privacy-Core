@@ -75,6 +75,8 @@ cmd_status() {
   printf 'Maintenance timer: %s\n' "$(service_state nova-maintenance.timer)"
   printf 'Cleanup timer: %s\n' "$(service_state nova-cleanup.timer)"
   printf 'AWG mode: %s\n' "${NOVA_AWG_MODE:-unknown}"
+  printf 'AWG backend: %s\n' "${NOVA_AWG_BACKEND:-unknown}"
+  printf 'AWG userspace version: %s\n' "${NOVA_AWG_GO_INSTALLED_VERSION:-unknown}"
   printf 'Traffic gate: %s\n' "${NOVA_TRAFFIC_GATE:-closed}"
   printf 'Repository: %s\n' "${NOVA_REPOSITORY:-unknown}"
   printf 'AdGuard target: %s\n' "${NOVA_ADGUARD_VERSION:-unknown}"
@@ -119,6 +121,26 @@ cmd_health() {
   if ! ip link show "$NOVA_VPN_IF" >/dev/null 2>&1; then
     printf 'FAIL interface %s missing\n' "$NOVA_VPN_IF"
     failed=1
+  fi
+
+  if [[ "${NOVA_AWG_BACKEND:-}" != "userspace" ]]; then
+    printf 'FAIL unsupported AWG backend: %s\n' "${NOVA_AWG_BACKEND:-unset}"
+    failed=1
+  elif [[ ! -x /usr/local/sbin/amneziawg-go ]]; then
+    printf 'FAIL AmneziaWG userspace daemon missing\n'
+    failed=1
+  else
+    actual_awg_hash="$(sha256sum /usr/local/sbin/amneziawg-go | awk '{print $1}')"
+    actual_awg_version="$(/usr/local/sbin/amneziawg-go --version 2>/dev/null | awk 'NR==1{print $2}')"
+    if [[ -z "${NOVA_AWG_GO_SHA256:-}" || "$actual_awg_hash" != "$NOVA_AWG_GO_SHA256" ]]; then
+      printf 'FAIL AmneziaWG userspace SHA-256 mismatch\n'
+      failed=1
+    fi
+    if [[ -z "${NOVA_AWG_GO_INSTALLED_VERSION:-}" ||
+          "$actual_awg_version" != "$NOVA_AWG_GO_INSTALLED_VERSION" ]]; then
+      printf 'FAIL AmneziaWG userspace version mismatch\n'
+      failed=1
+    fi
   fi
 
   if ss -H -lntup 2>/dev/null |
