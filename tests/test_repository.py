@@ -395,7 +395,8 @@ def test_periodic_maintenance_is_fail_closed():
     auto = read("scripts/install-automation.sh")
     defaults = read("config/defaults.env")
 
-    assert "apt-get -y full-upgrade" in maint
+    assert "full-upgrade" in maint
+    assert "DPkg::Lock::Timeout=600" in maint
     assert "NOVA_TRAFFIC_GATE closed" in maint
     assert "reopen-after-boot" in maint
     assert "systemctl reboot" in maint
