@@ -21,6 +21,7 @@ Commands:
   peer rotate NAME
   profile list
   profile set NAME PROFILE
+  anonymity guidance
   firewall check
   dns status
   awg mode balanced|max
@@ -125,9 +126,17 @@ case "${1:-}" in
       *) usage; exit 2 ;;
     esac
     ;;
+  anonymity)
+    [[ "${2:-}" == "guidance" ]] || { usage; exit 2; }
+    cat <<'EOF'
+TOR-ANON is client-originated: keep the NOVA peer on PRIVATE and use Tor Browser.
+MAX-MIX is client-originated: use the supported mixnet client/profile on the endpoint.
+NOVA does not claim the VPS can enforce these modes without inspecting application traffic.
+EOF
+    ;;
   profile)
     case "${2:-}" in
-      list) printf '%s\n' COMPAT PRIVATE STRICT TOR-ANON MAX-MIX LOCKDOWN ;;
+      list) printf '%s\n' COMPAT PRIVATE STRICT LOCKDOWN ;;
       set) exec "$ROOT/scripts/set-profile.sh" "${3:-}" "${4:-}" ;;
       *) usage; exit 2 ;;
     esac
