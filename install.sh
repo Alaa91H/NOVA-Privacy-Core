@@ -22,19 +22,21 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y --no-install-recommends ca-certificates gh jq tar gzip coreutils python3
+apt-get install -y --no-install-recommends ca-certificates curl gh jq tar gzip coreutils python3
 
 tmp="$(mktemp -d /tmp/nova-bootstrap.XXXXXX)"
 trap 'rm -rf "$tmp"' EXIT
 
 source_mode="${NOVA_SOURCE:-release}"
 if [[ "$source_mode" == "release" ]]; then
-  meta="$(gh release view --repo "$REPO" --json tagName,isDraft,isPrerelease 2>/dev/null || true)"
+  meta="$(curl --proto '=https' --tlsv1.2 -fsSL \
+    --connect-timeout 10 --max-time 30 \
+    "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null || true)"
   [[ -n "$meta" ]] || {
     printf 'No stable NOVA release exists yet. For an explicit audited development deployment set NOVA_SOURCE=main.\n' >&2
     exit 1
   }
-  tag="$(jq -er 'select(.isDraft==false and .isPrerelease==false) | .tagName' <<<"$meta")"
+  tag="$(jq -er 'select(.draft==false and .prerelease==false) | .tag_name' <<<"$meta")"
   [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
     printf 'Unexpected release tag: %s\n' "$tag" >&2
     exit 1
