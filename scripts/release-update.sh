@@ -26,7 +26,7 @@ release_json="$(gh release view --repo "$NOVA_REPOSITORY"   --json tagName,isDra
   exit 0
 }
 
-tag="$(jq -er 'select(.isDraft==false and .isPrerelease==false) | .tagName' <<<"$release_json")"
+tag="$(jq -er 'select(.draft==false and .prerelease==false) | .tag_name' <<<"$release_json")"
 [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
   die "refusing unexpected NOVA release tag: $tag"
 
@@ -110,7 +110,7 @@ source_root="$tmp/extracted/NOVA-Privacy-Core-$tag"
 (
   cd "$source_root"
   bash tests/run.sh
-  sudo -E bash tests/test-render-firewall.sh
+  bash tests/test-render-firewall.sh
 )
 
 bash "$source_root/scripts/install.sh"
