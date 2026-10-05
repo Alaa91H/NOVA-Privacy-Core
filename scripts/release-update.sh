@@ -130,10 +130,7 @@ bash "$source_root/scripts/install.sh"
 # A previously accepted production node reopens only after the new code proves
 # its invariants.  Pending reboot always wins and leaves the gate closed.
 if [[ "$previous_gate" == "open" && ! -e /var/run/reboot-required ]]; then
-  "$NOVA_INSTALL_ROOT/src/privacyctl" health
-  "$NOVA_INSTALL_ROOT/scripts/verify-leaks.sh"
-  write_runtime_kv NOVA_TRAFFIC_GATE open
-  NOVA_TRAFFIC_GATE=open "$NOVA_INSTALL_ROOT/scripts/render-firewall.sh"
+  "$NOVA_INSTALL_ROOT/scripts/reopen-verified.sh"
 elif [[ "$previous_gate" == "open" && -e /var/run/reboot-required ]]; then
   install -d -m 0700 "$NOVA_STATE/maintenance"
   printf 'open\n' >"$NOVA_STATE/maintenance/reopen-after-boot"
