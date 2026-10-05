@@ -40,7 +40,9 @@ load_awg_params() {
 endpoint_with_port() {
   local host="$NOVA_PUBLIC_ENDPOINT"
   [[ -n "$host" ]] || die "NOVA_PUBLIC_ENDPOINT is empty"
-  if [[ "$host" == *:* && "$host" != [*] ]]; then
+  if [[ "$host" == \\[*\\] ]]; then
+    printf '%s:%s\n' "$host" "$NOVA_AWG_PORT"
+  elif [[ "$host" == *:* ]]; then
     printf '[%s]:%s\n' "$host" "$NOVA_AWG_PORT"
   else
     printf '%s:%s\n' "$host" "$NOVA_AWG_PORT"
