@@ -83,6 +83,19 @@ DOH_IP_ELEMENTS="$(collect_doh_ips)"
 export WAN_IF VPN_IF AWG_PORT VPN_NET MGMT_NET PRIVATE_DNS_PORT STRICT_DNS_PORT UNBOUND_PORT
 export COMPAT_ELEMENTS STRICT_ELEMENTS MGMT_ELEMENTS LOCKDOWN_ELEMENTS DOH_IP_ELEMENTS
 
+case "${NOVA_TRAFFIC_GATE:-closed}" in
+  open)
+    TRAFFIC_GATE_DROP=""
+    ;;
+  closed)
+    TRAFFIC_GATE_DROP="    iifname \"${NOVA_VPN_IF}\" ip saddr { ${NOVA_VPN_NET}, ${NOVA_MGMT_NET} } drop"
+    ;;
+  *)
+    die "invalid NOVA_TRAFFIC_GATE=${NOVA_TRAFFIC_GATE:-unset}"
+    ;;
+esac
+export TRAFFIC_GATE_DROP
+
 if [[ -n "${NOVA_BOOTSTRAP_SSH_CIDR:-}" ]]; then
   if [[ "$NOVA_BOOTSTRAP_SSH_CIDR" == *:* ]]; then
     BOOTSTRAP_SSH_RULE="    iifname \"${NOVA_WAN_IF}\" ip6 saddr ${NOVA_BOOTSTRAP_SSH_CIDR} tcp dport 22 accept"
