@@ -8,8 +8,13 @@ source "$ROOT/scripts/lib/common.sh"
 require_root
 load_runtime
 acquire_nova_lock
-require_cmd nft
 require_cmd python3
+nft_bin="${NOVA_NFT_BIN:-nft}"
+if [[ "$nft_bin" == */* ]]; then
+  [[ -x "$nft_bin" ]] || die "NOVA_NFT_BIN is not executable: $nft_bin"
+else
+  require_cmd "$nft_bin"
+fi
 
 PEER_DIR="${NOVA_ETC}/peers.d"
 mkdir -p "$PEER_DIR" "${NOVA_ETC}/nftables"
@@ -96,7 +101,7 @@ chmod 0600 "$candidate"
 
 # nft -c parses the complete transaction without changing the active ruleset.
 # The final nft -f call then replaces NOVA's table in one transaction.
-nft -c -f "$candidate"
+"$nft_bin" -c -f "$candidate"
 mv -f "$candidate" "$final"
-nft -f "$final"
+"$nft_bin" -f "$final"
 log "atomic nftables policy loaded"
