@@ -78,6 +78,10 @@ automation_ready() {
   done
 }
 
+independent_upgrader_disabled() {
+  ! systemctl is-enabled --quiet apt-daily-upgrade.timer 2>/dev/null
+}
+
 memory_stack_ok() {
   if [[ "${NOVA_ZRAM_POLICY:-auto}" == "auto" ]]; then
     swapon --noheadings --show=NAME 2>/dev/null | grep -Fxq '/dev/zram0' || return 1
@@ -197,7 +201,8 @@ preflight() {
 
 server_checks() {
   run_check "core services active" server_services
-  run_check "automatic security/update/cleanup timers active" automation_ready
+  run_check "automatic NOVA update/cleanup timers active" automation_ready
+  run_check "Ubuntu independent package-upgrade timer disabled" independent_upgrader_disabled
   run_check "firewall input/forward/output default DROP" firewall_ok
   run_check "AWG interface exists" awg_interface_ok
   run_check "IPv4 forwarding enabled after firewall" ipv4_forwarding
