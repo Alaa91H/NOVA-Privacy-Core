@@ -9,24 +9,20 @@ require_root
 load_runtime
 require_cmd ip
 
-probe_awg31() {
-  command -v awg >/dev/null 2>&1 || return 1
-  command -v awg-quick >/dev/null 2>&1 || return 1
-  modinfo amneziawg >/dev/null 2>&1 || return 1
+probe_awg31() (
+  set -Eeuo pipefail
+  command -v awg >/dev/null 2>&1 || exit 1
+  command -v awg-quick >/dev/null 2>&1 || exit 1
+  modinfo amneziawg >/dev/null 2>&1 || exit 1
 
-  local dev="nova-awg-probe"
-  local cfg key header
+  dev="nova-awg-probe"
   cfg="$(mktemp)"
   key="$(awg genkey)"
   header="$(awg genkey)"
-  cleanup_probe() {
-    ip link del "$dev" >/dev/null 2>&1 || true
-    rm -f "$cfg"
-  }
-  trap cleanup_probe RETURN
+  trap 'ip link del "$dev" >/dev/null 2>&1 || true; rm -f "$cfg"' EXIT
 
   ip link del "$dev" >/dev/null 2>&1 || true
-  ip link add dev "$dev" type amneziawg >/dev/null 2>&1 || return 1
+  ip link add dev "$dev" type amneziawg >/dev/null 2>&1 || exit 1
 
   cat >"$cfg" <<EOF
 [Interface]
@@ -49,14 +45,10 @@ DisableCookies = off
 EOF
   chmod 0600 "$cfg"
 
-  if ! awg setconf "$dev" "$cfg" >/dev/null 2>&1; then
-    return 1
-  fi
-
-  # A successful setconf proves the installed tools + loaded kernel module
-  # understand the AWG 3.1 controls NOVA actually uses.
+  awg setconf "$dev" "$cfg" >/dev/null 2>&1 || exit 1
   awg show "$dev" >/dev/null 2>&1
-}
+)
+
 
 if command -v awg >/dev/null 2>&1 && modinfo amneziawg >/dev/null 2>&1; then
   modprobe amneziawg || true
