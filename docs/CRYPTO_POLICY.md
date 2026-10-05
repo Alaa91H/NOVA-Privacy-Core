@@ -22,7 +22,17 @@ Its 3.1 additions are obfuscation and metadata-shaping mechanisms, not replaceme
 
 ## AWG 3.1 feature policy
 
-Header protection, content padding, random trailers, and timing randomization are enabled only after server/client interoperability checks pass. Current 3.1 implementations have changed rapidly, so NOVA favors verified compatibility over untested “maximum” parameter values.
+NOVA generates a unique, persistent obfuscation identity per server using the OS CSPRNG:
+
+- Jc is randomized within the current recommended range;
+- S1-S4 are generated inside conservative documented bounds;
+- H1-H4 are unique high-entropy values rather than project-wide constants;
+- the header-protection key is unique to the server;
+- the parameter set is backed up with the encrypted server state and must not change while existing peers still use it.
+
+Header protection and content padding are enabled in the supported profile. Experimental features are not equated with stronger security: RandomTrailers remains **off by default**, including MAX mode, until current 3.1 interoperability/packet-classification issues are demonstrably resolved on both server and client implementations. Operators can only enable it through an explicit experimental feature gate.
+
+NOVA favors a verified, non-fingerprinted configuration over untested “maximum” values.
 
 ## Project-controlled TLS
 
