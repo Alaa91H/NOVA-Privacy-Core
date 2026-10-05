@@ -11,10 +11,15 @@ require_root
 load_runtime
 
 name="${1:-}"
-profile="${2:-PRIVATE}"
-shift $(( $# > 0 ? 1 : 0 ))
-[[ $# -gt 0 ]] && shift || true
+[[ -n "$name" ]] || die "usage: create-peer.sh NAME [PROFILE] [--management]"
+shift || true
+
+profile="PRIVATE"
 management=0
+if [[ $# -gt 0 && "$1" != --* ]]; then
+  profile="$1"
+  shift
+fi
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --management) management=1 ;;
