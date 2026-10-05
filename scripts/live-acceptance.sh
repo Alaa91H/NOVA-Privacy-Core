@@ -69,7 +69,115 @@ firewall_ok() {
 no_public_sensitive_ports() {
   ! ss -H -lntup 2>/dev/null |
     awk '{print $5}' |
-    grep -E ':(22|53|853|3000|3001|5300|5301|5335)$' |
+    grep -E ':(53|853|3000|3001|5300|5301|5335)    grep -Eq '^(0\.0\.0\.0|\[::\]|\*):'
+}
+
+awg_interface_ok() {
+  ip link show "$NOVA_VPN_IF" >/dev/null 2>&1
+}
+
+secret_modes_ok() {
+  local bad
+  bad="$(find "$NOVA_ETC" -type f \(       -name '*.key' -o -name '*.psk' -o -name 'server.key' -o       -name 'admin.password' -o -path '*/peer-secrets/*'     \) -perm /077 2>/dev/null || true)"
+  [[ -z "$bad" ]]
+}
+
+journal_volatile() {
+  systemd-analyze cat-config systemd/journald.conf 2>/dev/null |
+    grep -Eq '^[[:space:]]*Storage=volatile[[:space:]]*$'
+}
+
+ipv6_fail_closed() {
+  [[ "$(sysctl -n net.ipv6.conf.all.forwarding)" == "0" ]]
+}
+
+ipv4_forwarding() {
+  [[ "$(sysctl -n net.ipv4.ip_forward)" == "1" ]]
+}
+
+dns_stack_ok() {
+  dig +time=3 +tries=1 @"${NOVA_VPN_ADDR%/*}" -p "$NOVA_ADGUARD_PRIVATE_PORT" example.com A >/dev/null &&
+  dig +time=3 +tries=1 @"${NOVA_VPN_ADDR%/*}" -p "$NOVA_ADGUARD_STRICT_PORT" example.com A >/dev/null &&
+  dig +time=3 +tries=1 @"${NOVA_VPN_ADDR%/*}" -p "$NOVA_UNBOUND_PORT" example.com A >/dev/null
+}
+
+doh_set_ok() {
+  local f="$NOVA_STATE/doh/doh-ipv4.txt" n sample
+  [[ -s "$f" ]] || return 1
+  n="$(grep -cvE '^[[:space:]]*(#|$)' "$f" || true)"
+  (( n >= 100 )) || return 1
+  sample="$(grep -vE '^[[:space:]]*(#|$)' "$f" | head -n1)"
+  nft list set inet nova doh4 2>/dev/null | grep -Fq "$sample"
+}
+
+public_bootstrap_ssh_closed() {
+  [[ -z "${NOVA_BOOTSTRAP_SSH_CIDR:-}" ]] &&
+  ! nft list chain inet nova input 2>/dev/null |
+    grep -E 'iifname ".*".*tcp dport 22 accept' |
+    grep -v "@management4" >/dev/null
+}
+
+ssh_passwords_disabled() {
+  sshd -T 2>/dev/null | grep -Eq '^passwordauthentication no$' &&
+  sshd -T 2>/dev/null | grep -Eq '^permitrootlogin no$'
+}
+
+querylogs_disabled() {
+  grep -A4 '^querylog:' "$NOVA_ETC/adguard/private.yaml" | grep -q 'enabled: false' &&
+  grep -A4 '^querylog:' "$NOVA_ETC/adguard/strict.yaml" | grep -q 'enabled: false'
+}
+
+preflight() {
+  run_check "Debian 13 baseline" is_debian_13
+  run_check ">= 850 MiB visible RAM" ram_ok
+  if command -v nft >/dev/null 2>&1; then ok "nftables installed"; else bad "nftables missing"; fi
+  if command -v awg >/dev/null 2>&1; then ok "AmneziaWG tools installed"; else bad "AmneziaWG tools missing"; fi
+  if command -v unbound >/dev/null 2>&1; then ok "Unbound installed"; else bad "Unbound missing"; fi
+  if command -v age >/dev/null 2>&1; then ok "age installed"; else bad "age missing"; fi
+  run_check "only zram/no disk swap" no_swap_disk
+}
+
+server_checks() {
+  run_check "core services active" server_services
+  run_check "DoH guard timer active" doh_timer_ok
+  run_check "firewall input/forward/output default DROP" firewall_ok
+  run_check "AWG interface exists" awg_interface_ok
+  run_check "IPv4 forwarding enabled after firewall" ipv4_forwarding
+  run_check "IPv6 forwarding disabled" ipv6_fail_closed
+  run_check "no wildcard-sensitive DNS/admin listener" no_public_sensitive_ports
+  run_check "public bootstrap SSH rule removed" public_bootstrap_ssh_closed
+  run_check "VPN DNS stack responds" dns_stack_ok
+  run_check "STRICT encrypted-DNS IP set loaded" doh_set_ok
+  run_check "AdGuard query logs disabled" querylogs_disabled
+  run_check "secret files are not group/world accessible" secret_modes_ok
+  run_check "SSH passwords/root login disabled" ssh_passwords_disabled
+  if journal_volatile; then ok "journald configured volatile"; else note "could not prove Storage=volatile"; fi
+}
+
+preflight
+if [[ "$mode" != "preflight" ]]; then
+  server_checks
+fi
+
+printf '\nSummary: %d passed, %d failed, %d warnings\n' "$pass" "$fail" "$warns"
+if (( fail > 0 )); then
+  exit 1
+fi
+
+if [[ "$mode" == "report" ]]; then
+  cat <<'EOF'
+
+Physical-client gates still require observation from each endpoint:
+- visible public IPv4/IPv6;
+- DNS resolver path;
+- Android Always-on + Block connections without VPN;
+- Windows sleep/wake and Wi-Fi/network transition;
+- forced server/tunnel failure with client traffic blocked;
+- Tor Browser exit and DNS path;
+- mixnet latency/compatibility if MAX-MIX is used.
+EOF
+fi
+ |
     grep -Eq '^(0\.0\.0\.0|\[::\]|\*):'
 }
 
