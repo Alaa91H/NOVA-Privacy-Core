@@ -13,9 +13,21 @@ status=0
 show_binary() {
   local name="$1" cmd="$2"
   if command -v "$cmd" >/dev/null 2>&1; then
-    printf 'AVAILABLE  %-12s %s\n' "$name" "$("$cmd" version 2>&1 | head -n1 || "$cmd" --version 2>&1 | head -n1 || true)"
+    local line
+    line="$("$cmd" version 2>&1 | head -n1 || true)"
+    [[ -n "$line" ]] || line="$("$cmd" --version 2>&1 | head -n1 || true)"
+    printf 'AVAILABLE  %-12s %s\n' "$name" "${line:-version-unknown}"
   else
     printf 'ABSENT     %-12s\n' "$name"
+  fi
+}
+
+require_feature_binary() {
+  local state="$1" label="$2" binary="$3"
+  [[ "$state" == "enabled" ]] || return 0
+  if ! command -v "$binary" >/dev/null 2>&1; then
+    printf 'FAIL %-12s marked enabled but %s is unavailable\n' "$label" "$binary" >&2
+    status=1
   fi
 }
 
@@ -32,12 +44,16 @@ show_binary "hysteria" hysteria
 show_binary "tor" tor
 show_binary "nym-vpn" nym-vpn
 
-if [[ "$NOVA_FEATURE_MASQUE" == "enabled" && ! $(command -v sing-box || true) ]]; then
-  printf 'FAIL MASQUE marked enabled but sing-box is unavailable\n' >&2
+require_feature_binary "$NOVA_FEATURE_MASQUE" "MASQUE" sing-box
+require_feature_binary "$NOVA_FEATURE_NAIVE" "NaiveProxy" naive
+require_feature_binary "$NOVA_FEATURE_HYSTERIA2" "Hysteria2" hysteria
+
+if [[ "$NOVA_FEATURE_TOR_ANON" != "client" ]]; then
+  printf 'FAIL TOR-ANON must remain client-originated in the v1 trust model\n' >&2
   status=1
 fi
-if [[ "$NOVA_FEATURE_HYSTERIA2" == "enabled" && ! $(command -v hysteria || true) ]]; then
-  printf 'FAIL Hysteria2 marked enabled but binary is unavailable\n' >&2
+if [[ "$NOVA_FEATURE_MAX_MIX" != "client" ]]; then
+  printf 'FAIL MAX-MIX must remain client-originated in the v1 trust model\n' >&2
   status=1
 fi
 
@@ -51,6 +67,8 @@ Activation additionally requires:
 - memory/CPU benchmark;
 - DPI/transport behavior review;
 - post-quantum handshake evidence if that profile is labelled PQ/T.
+
+No optional transport may silently downgrade to direct egress.
 EOF
 
 exit "$status"
