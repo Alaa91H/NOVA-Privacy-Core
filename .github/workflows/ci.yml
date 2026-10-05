@@ -27,7 +27,7 @@ jobs:
       - name: Install validation tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends shellcheck nftables python3
+          sudo apt-get install -y --no-install-recommends shellcheck nftables python3 python3-yaml
 
       - name: Repository test suite
         run: bash tests/run.sh
@@ -35,16 +35,27 @@ jobs:
       - name: Privileged firewall renderer integration test
         run: sudo -E bash tests/test-render-firewall.sh
 
+      - name: Validate workflow YAML
+        run: |
+          python3 - <<'PY'
+          import pathlib, yaml
+          for path in pathlib.Path(".github/workflows").glob("*.yml"):
+              with path.open("r", encoding="utf-8") as f:
+                  yaml.safe_load(f)
+              print("valid", path)
+          PY
+
       - name: Target Ubuntu 26.04 LTS compatibility validation
         run: |
           docker run --rm --platform linux/amd64             -v "$PWD:/src:ro"             ubuntu:26.04@sha256:da6fc2be547864451aa253836dd926da33623312df4a9a243e35dc877c378a78             bash -Eeuo pipefail -c '
               export DEBIAN_FRONTEND=noninteractive
               apt-get update
-              apt-get install -y --no-install-recommends                 bash git shellcheck nftables python3 ca-certificates                 openssh-server unbound systemd-zram-generator cryptsetup-bin                 jq gh iproute2 procps
+              apt-get install -y --no-install-recommends                 bash git shellcheck nftables python3 ca-certificates                 openssh-server unbound systemd-zram-generator cryptsetup-bin                 jq gh iproute2 procps python3-yaml
               . /etc/os-release
               [[ "$ID" == "ubuntu" && "$VERSION_ID" == "26.04" ]]
               dpkg --compare-versions "$(dpkg-query -W -f="${Version}" unbound)" ge "1.24.2-1ubuntu2.1"
               ssh -Q kex | grep -qx mlkem768x25519-sha256
+              gh attestation verify --help | grep -q -- "--bundle"
               apt-cache show linux-oracle-7.0 >/dev/null
               mkdir -p /work
               cp -a /src/. /work/
