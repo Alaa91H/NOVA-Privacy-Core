@@ -165,6 +165,35 @@ def test_secret_ignores():
     for marker in ("*.key", "*.psk", "*.p12", "*.pfx", "*.tar.age", "secrets/"):
         assert marker in text, f"missing gitignore rule: {marker}"
 
+
+def test_operator_overrides_are_preserved():
+    defaults = read("config/defaults.env")
+    assert 'NOVA_WAN_IF=${NOVA_WAN_IF:-}' in defaults
+    assert 'NOVA_ETC=${NOVA_ETC:-/etc/nova-privacy}' in defaults
+    assert 'NOVA_AWG_MODE=${NOVA_AWG_MODE:-balanced}' in defaults
+
+def test_anonymity_modes_are_client_only():
+    common = read("scripts/lib/common.sh")
+    ctl = read("src/privacyctl")
+    assert "COMPAT|PRIVATE|STRICT|LOCKDOWN" in common
+    assert "TOR-ANON|MAX-MIX" not in common
+    assert "anonymity guidance" in ctl
+    assert "client-originated" in ctl
+
+def test_peer_export_atomic_and_ipv6_safe():
+    helper = read("scripts/lib/peer.sh")
+    assert 'tmp_conf="$(mktemp' in helper
+    assert 'mv -f "$tmp_conf" "$conf"' in helper
+    assert 'tmp_qr="$(mktemp' in helper
+    assert '${host:0:1}' in helper
+    assert '${host: -1}' in helper
+
+def test_awg_rebuild_is_transactional():
+    rebuild = read("scripts/rebuild-awg-peers.sh")
+    assert "new_stripped" in rebuild and "old_stripped" in rebuild
+    assert "persistent config unchanged" in rebuild
+    assert rebuild.index('awg syncconf "$NOVA_VPN_IF" "$new_stripped"') < rebuild.index('mv -f "$candidate" "$conf"')
+
 def test_version():
     version = read("VERSION").strip()
     assert re.fullmatch(r"\d+\.\d+\.\d+", version), version
@@ -184,6 +213,10 @@ def main():
         test_installer_order,
         test_no_tls_mitm,
         test_secret_ignores,
+        test_operator_overrides_are_preserved,
+        test_anonymity_modes_are_client_only,
+        test_peer_export_atomic_and_ipv6_safe,
+        test_awg_rebuild_is_transactional,
         test_version,
     ]
     for test in tests:
