@@ -13,6 +13,7 @@ require_cmd python3
 
 backup="${1:-}"
 [[ -n "$backup" && -r "$backup" ]] || die "usage: restore.sh FILE.tar.age"
+recovery_bootstrap_cidr="${NOVA_BOOTSTRAP_SSH_CIDR:-}"
 
 tmpdir="$(mktemp -d /run/nova-restore.XXXXXX)"
 old="$tmpdir/old"
@@ -80,7 +81,7 @@ trap rollback ERR
 # shellcheck disable=SC1091
 source "$NOVA_ETC/nova.env"
 write_runtime_kv NOVA_TRAFFIC_GATE closed
-write_runtime_kv NOVA_BOOTSTRAP_SSH_CIDR ""
+write_runtime_kv NOVA_BOOTSTRAP_SSH_CIDR "$recovery_bootstrap_cidr"
 write_runtime_kv NOVA_OS_BASELINE "ubuntu-26.04"
 if is_oci_host; then
   write_runtime_kv NOVA_PLATFORM "oci"
@@ -109,4 +110,7 @@ NOVA_TRAFFIC_GATE=closed bash "$ROOT/scripts/render-firewall.sh"
 rm -rf "$old"
 trap - ERR
 log "restore reconstructed successfully with protected forwarding CLOSED"
+if [[ -n "$recovery_bootstrap_cidr" ]]; then
+  log "recovery bootstrap SSH remains restricted to $recovery_bootstrap_cidr until activation"
+fi
 log "connect a management peer, then run: privacyctl activate"
