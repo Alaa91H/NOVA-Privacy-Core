@@ -69,8 +69,149 @@ cmd_health() {
     printf 'FAIL interface %s missing\n' "$NOVA_VPN_IF"
     failed=1
   fi
-  if ss -lntup | grep -E '(^|[[:space:]])0\.0\.0\.0:(53|3000|3001|5300|5301|5335)([[:space:]]|$)' >/dev/null; then
-    printf 'FAIL sensitive service listening on all IPv4 interfaces\n'
+  if ss -H -lntup 2>/dev/null | awk '{print $5}' |
+      grep -E ':(53|3000|3001|5300|5301|5335)  if ! systemctl is-active --quiet nova-doh-ips.timer; then
+    printf 'FAIL encrypted-DNS IP refresh timer inactive\n'
+    failed=1
+  fi
+  doh_file="$NOVA_STATE/doh/doh-ipv4.txt"
+  doh_count=0
+  if [[ -s "$doh_file" ]]; then
+    doh_count="$(grep -cvE '^[[:space:]]*(#|$)' "$doh_file" || true)"
+  fi
+  if (( doh_count < 100 )); then
+    printf 'FAIL encrypted-DNS IPv4 set missing/truncated (%s entries)\n' "$doh_count"
+    failed=1
+  else
+    sample_doh="$(grep -vE '^[[:space:]]*(#|$)' "$doh_file" | head -n1)"
+    if ! nft list set inet nova doh4 2>/dev/null | grep -Fq "$sample_doh"; then
+      printf 'FAIL encrypted-DNS IPv4 set is not loaded into nftables\n'
+      failed=1
+    fi
+  fi
+  if [[ "$failed" -eq 0 ]]; then
+    printf 'OK\n'
+  fi
+  return "$failed"
+}
+
+cmd_peers() {
+  local f
+  printf '%-20s %-15s %-12s %-5s\n' NAME IP PROFILE MGMT
+  shopt -s nullglob
+  for f in "$NOVA_ETC"/peers.d/*.env; do
+    unset NAME IP PROFILE MANAGEMENT
+    # shellcheck disable=SC1090
+    source "$f"
+    printf '%-20s %-15s %-12s %-5s\n' "$NAME" "$IP" "$PROFILE" "${MANAGEMENT:-0}"
+  done
+}
+
+recent_management_handshake() {
+  local now key ts f
+  now="$(date +%s)"
+  declare -A hs=()
+  while read -r key ts; do
+    [[ -n "$key" ]] && hs["$key"]="$ts"
+  done < <(awg show "$NOVA_VPN_IF" latest-handshakes 2>/dev/null || true)
+
+  shopt -s nullglob
+  for f in "$NOVA_ETC"/peers.d/*.env; do
+    unset MANAGEMENT PUBLIC_KEY
+    # shellcheck disable=SC1090
+    source "$f"
+    if [[ "${MANAGEMENT:-0}" == "1" ]]; then
+      ts="${hs[$PUBLIC_KEY]:-0}"
+      if [[ "$ts" =~ ^[0-9]+$ ]] && (( ts > 0 && now - ts <= 300 )); then
+        return 0
+      fi
+    fi
+  done
+  return 1
+}
+
+case "${1:-}" in
+  status) cmd_status ;;
+  health) cmd_health ;;
+  peers) cmd_peers ;;
+  peer)
+    case "${2:-}" in
+      add) shift 2; exec "$ROOT/scripts/create-peer.sh" "$@" ;;
+      revoke) exec "$ROOT/scripts/revoke-peer.sh" "${3:-}" ;;
+      rotate) exec "$ROOT/scripts/rotate-peer.sh" "${3:-}" ;;
+      *) usage; exit 2 ;;
+    esac
+    ;;
+  anonymity)
+    [[ "${2:-}" == "guidance" ]] || { usage; exit 2; }
+    cat <<'EOF'
+TOR-ANON is client-originated: keep the NOVA peer on PRIVATE and use Tor Browser.
+MAX-MIX is client-originated: use the supported mixnet client/profile on the endpoint.
+NOVA does not claim the VPS can enforce these modes without inspecting application traffic.
+EOF
+    ;;
+  profile)
+    case "${2:-}" in
+      list) printf '%s\n' COMPAT PRIVATE STRICT LOCKDOWN ;;
+      set) exec "$ROOT/scripts/set-profile.sh" "${3:-}" "${4:-}" ;;
+      *) usage; exit 2 ;;
+    esac
+    ;;
+  firewall)
+    [[ "${2:-}" == "check" ]] || { usage; exit 2; }
+    nft -c -f "$NOVA_ETC/nftables/nova.nft"
+    nft list table inet nova
+    ;;
+  dns)
+    [[ "${2:-}" == "status" ]] || { usage; exit 2; }
+    systemctl --no-pager --full status unbound.service nova-adguard-private.service nova-adguard-strict.service
+    ;;
+  awg)
+    [[ "${2:-}" == "mode" ]] || { usage; exit 2; }
+    mode="${3:-}"
+    [[ "$mode" == "balanced" || "$mode" == "max" ]] || die "mode must be balanced or max"
+    shopt -s nullglob
+    peers=("$NOVA_ETC"/peers.d/*.env)
+    [[ "${#peers[@]}" -eq 0 ]] || die "AWG mode changes require peer reprovisioning; revoke peers first"
+    exec "$ROOT/scripts/configure-awg.sh" "$mode"
+    ;;
+  lockdown)
+    recent_management_handshake || die "no management peer has a handshake in the last 5 minutes"
+    write_runtime_kv NOVA_BOOTSTRAP_SSH_CIDR ""
+    "$ROOT/scripts/render-firewall.sh"
+    log "public bootstrap SSH rule removed"
+    ;;
+  bootstrap-ssh)
+    cidr="${2:-}"
+    [[ -n "$cidr" ]] || die "CIDR required"
+    write_runtime_kv NOVA_BOOTSTRAP_SSH_CIDR "$cidr"
+    exec "$ROOT/scripts/render-firewall.sh"
+    ;;
+  leaks)
+    [[ "${2:-}" == "test" ]] || { usage; exit 2; }
+    exec "$ROOT/scripts/verify-leaks.sh"
+    ;;
+  backup)
+    exec "$ROOT/scripts/backup.sh" "${2:-}"
+    ;;
+  restore)
+    exec "$ROOT/scripts/restore.sh" "${2:-}"
+    ;;
+  update)
+    [[ "${2:-}" == "check" ]] || { usage; exit 2; }
+    exec "$ROOT/scripts/update-components.sh" --check
+    ;;
+  version)
+    cat "$ROOT/VERSION"
+    ;;
+  *)
+    usage
+    exit 2
+    ;;
+esac
+ |
+      grep -Eq '^(0\.0\.0\.0|\[::\]|\*):'; then
+    printf 'FAIL sensitive service listening on a wildcard public address\n'
     failed=1
   fi
   if [[ "$failed" -eq 0 ]]; then
