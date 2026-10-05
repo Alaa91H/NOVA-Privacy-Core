@@ -65,7 +65,9 @@ stop_swap() {
   fi
   if [[ -r "$loop_state" ]]; then
     loopdev="$(cat "$loop_state")"
-    [[ -n "$loopdev" ]] && losetup -d "$loopdev" >/dev/null 2>&1 || true
+    if [[ -n "$loopdev" ]]; then
+      losetup -d "$loopdev" >/dev/null 2>&1 || true
+    fi
     rm -f "$loop_state"
   fi
 }
