@@ -36,6 +36,17 @@ def test_lockdown_precedes_conntrack_accept():
     )
 
 
+
+def test_dns_bypass_blocks_precede_conntrack_accept():
+    text = read("config/nftables/nova.nft.in")
+    m = re.search(r"chain forward \{(.*?)\n  \}", text, re.S)
+    assert m, "forward chain not found"
+    forward = m.group(1)
+    established = forward.index("ct state established,related accept")
+    assert forward.index("ip saddr @strict4 ip daddr @doh4 drop") < established
+    assert forward.index("tcp dport 853 drop") < established
+    assert forward.index("udp dport 853 drop") < established
+
 def test_early_firewall_boot_order():
     unit = read("config/systemd/nova-firewall.service")
     assert "DefaultDependencies=no" in unit
@@ -349,6 +360,7 @@ def main():
     tests = [
         test_firewall,
         test_lockdown_precedes_conntrack_accept,
+        test_dns_bypass_blocks_precede_conntrack_accept,
         test_early_firewall_boot_order,
         test_dns_privacy,
         test_adguard_least_privilege_auth,
