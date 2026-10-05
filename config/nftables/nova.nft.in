@@ -70,6 +70,7 @@ table inet nova {
 
     ct state invalid drop
     iifname "@@VPN_IF@@" ip saddr @lockdown4 drop
+@@TRAFFIC_GATE_DROP@@
     iifname "@@VPN_IF@@" ip saddr @strict4 ip daddr @doh4 drop
     iifname "@@VPN_IF@@" ip saddr { @@VPN_NET@@, @@MGMT_NET@@ } tcp dport 853 drop
     iifname "@@VPN_IF@@" ip saddr { @@VPN_NET@@, @@MGMT_NET@@ } udp dport 853 drop
