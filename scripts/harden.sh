@@ -18,8 +18,9 @@ if systemctl list-unit-files apparmor.service >/dev/null 2>&1; then
   systemctl enable --now apparmor.service || warn "AppArmor could not be enabled; inspect kernel LSM configuration"
 fi
 
-# Security-only unattended upgrades.  Third-party VPN/DNS packages are not
-# blindly upgraded because transport changes require interoperability tests.
+# Define Ubuntu security origins for operator visibility/manual fallback, but
+# automatic package installation is owned exclusively by NOVA's fail-closed
+# maintenance transaction below.
 # shellcheck disable=SC1091
 source /etc/os-release
 codename="${VERSION_CODENAME:-}"
