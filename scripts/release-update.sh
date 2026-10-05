@@ -14,15 +14,15 @@ acquire_nova_lock
   exit 0
 }
 
-require_cmd gh
-require_cmd jq
-require_cmd sha256sum
-require_cmd python3
-require_cmd rsync
+for cmd in curl gh jq sha256sum python3 rsync tar; do
+  require_cmd "$cmd"
+done
 
-release_json="$(gh release view --repo "$NOVA_REPOSITORY"   --json tagName,isDraft,isPrerelease 2>/dev/null || true)"
+release_json="$(
+  curl --proto '=https' --tlsv1.2 -fsSL     --connect-timeout 10 --max-time 30     "https://api.github.com/repos/$NOVA_REPOSITORY/releases/latest" 2>/dev/null || true
+)"
 [[ -n "$release_json" ]] || {
-  warn "no published NOVA release available"
+  warn "no published NOVA stable release available"
   exit 0
 }
 
@@ -36,6 +36,13 @@ if ! dpkg --compare-versions "${tag#v}" gt "$current"; then
   exit 0
 fi
 
+asset_url() {
+  local name="$1"
+  jq -er --arg name "$name"     '.assets[] | select(.name==$name) | .browser_download_url'     <<<"$release_json"
+}
+
+archive="NOVA-Privacy-Core-${tag}.tar.gz"
+bundle="NOVA-Privacy-Core-${tag}.attestation.jsonl"
 previous_gate="${NOVA_TRAFFIC_GATE:-closed}"
 tmp="$(mktemp -d /run/nova-release.XXXXXX)"
 rollback_dir="$NOVA_STATE/rollback"
@@ -43,43 +50,21 @@ config_snapshot="$tmp/etc-nova-privacy"
 install -d -m 0700 "$rollback_dir"
 trap 'rm -rf "$tmp"' EXIT
 
-# Close forwarding before changing any privileged code or package state.
-write_runtime_kv NOVA_TRAFFIC_GATE closed
-NOVA_TRAFFIC_GATE=closed "$ROOT/scripts/render-firewall.sh"
-
-cp -a "$NOVA_ETC" "$config_snapshot"
-rollback_archive="$rollback_dir/source-${current}-$(date -u +%Y%m%dT%H%M%SZ).tar.gz"
-tar -C "$NOVA_INSTALL_ROOT" -czf "$rollback_archive" .
-chmod 0600 "$rollback_archive"
-
-rollback() {
-  warn "release update failed; restoring previous NOVA source/config with traffic CLOSED"
-  rm -rf "$NOVA_INSTALL_ROOT"
-  install -d -m 0755 "$NOVA_INSTALL_ROOT"
-  tar -C "$NOVA_INSTALL_ROOT" -xzf "$rollback_archive" || true
-
-  rm -rf "$NOVA_ETC"
-  cp -a "$config_snapshot" "$NOVA_ETC" || true
-  # Never restore the previous open state after a failed upgrade.
-  if [[ -x "$NOVA_INSTALL_ROOT/src/privacyctl" ]]; then
-    source "$NOVA_INSTALL_ROOT/scripts/lib/common.sh"
-    load_runtime
-    write_runtime_kv NOVA_TRAFFIC_GATE closed
-    NOVA_TRAFFIC_GATE=closed "$NOVA_INSTALL_ROOT/scripts/render-firewall.sh" >/dev/null 2>&1 || true
-  fi
-}
-trap rollback ERR
-
-archive="NOVA-Privacy-Core-${tag}.tar.gz"
-gh release download "$tag" --repo "$NOVA_REPOSITORY"   --pattern "$archive" --pattern SHA256SUMS --dir "$tmp"
+# Download and cryptographically authenticate the complete candidate before
+# changing active code or disrupting accepted user forwarding.
+for asset in "$archive" SHA256SUMS "$bundle"; do
+  url="$(asset_url "$asset")"
+  curl --proto '=https' --tlsv1.2 -fsSL     --connect-timeout 10 --max-time 180     "$url" -o "$tmp/$asset"
+done
 
 (
   cd "$tmp"
   grep -F "  $archive" SHA256SUMS >SHA256SUMS.selected
+  [[ -s SHA256SUMS.selected ]]
   sha256sum -c SHA256SUMS.selected
 )
 
-gh attestation verify "$tmp/$archive"   --repo "$NOVA_REPOSITORY"   --signer-workflow "$NOVA_REPOSITORY/.github/workflows/release.yml"   --source-ref "refs/tags/$tag" >/dev/null
+gh attestation verify "$tmp/$archive"   --bundle "$tmp/$bundle"   --repo "$NOVA_REPOSITORY"   --signer-workflow "$NOVA_REPOSITORY/.github/workflows/release.yml"   --source-ref "refs/tags/$tag" >/dev/null
 
 python3 - "$tmp/$archive" "$tmp/extracted" "$tag" <<'PY'
 import pathlib,sys,tarfile
@@ -113,16 +98,47 @@ source_root="$tmp/extracted/NOVA-Privacy-Core-$tag"
   bash tests/test-render-firewall.sh
 )
 
+# Only now enter maintenance mode.
+write_runtime_kv NOVA_TRAFFIC_GATE closed
+NOVA_TRAFFIC_GATE=closed "$ROOT/scripts/render-firewall.sh"
+
+cp -a "$NOVA_ETC" "$config_snapshot"
+rollback_archive="$rollback_dir/source-${current}-$(date -u +%Y%m%dT%H%M%SZ).tar.gz"
+tar -C "$NOVA_INSTALL_ROOT" -czf "$rollback_archive" .
+chmod 0600 "$rollback_archive"
+
+rollback() {
+  warn "release update failed; restoring previous NOVA source/config with traffic CLOSED"
+  rm -rf "$NOVA_INSTALL_ROOT"
+  install -d -m 0755 "$NOVA_INSTALL_ROOT"
+  tar -C "$NOVA_INSTALL_ROOT" -xzf "$rollback_archive" || true
+  rm -rf "$NOVA_ETC"
+  cp -a "$config_snapshot" "$NOVA_ETC" || true
+
+  if [[ -x "$NOVA_INSTALL_ROOT/src/privacyctl" ]]; then
+    # shellcheck disable=SC1090
+    source "$NOVA_INSTALL_ROOT/scripts/lib/common.sh"
+    load_runtime
+    write_runtime_kv NOVA_TRAFFIC_GATE closed
+    NOVA_TRAFFIC_GATE=closed       "$NOVA_INSTALL_ROOT/scripts/render-firewall.sh" >/dev/null 2>&1 || true
+  fi
+}
+trap rollback ERR
+
 bash "$source_root/scripts/install.sh"
 
-# install.sh intentionally leaves a pre-existing closed gate closed.  A
-# previously accepted production node may reopen only after the upgraded system
-# proves its server-side invariants again.
-if [[ "$previous_gate" == "open" ]]; then
+# A previously accepted production node reopens only after the new code proves
+# its invariants.  Pending reboot always wins and leaves the gate closed.
+if [[ "$previous_gate" == "open" && ! -e /var/run/reboot-required ]]; then
   "$NOVA_INSTALL_ROOT/src/privacyctl" health
   "$NOVA_INSTALL_ROOT/scripts/verify-leaks.sh"
   write_runtime_kv NOVA_TRAFFIC_GATE open
   NOVA_TRAFFIC_GATE=open "$NOVA_INSTALL_ROOT/scripts/render-firewall.sh"
+elif [[ "$previous_gate" == "open" && -e /var/run/reboot-required ]]; then
+  install -d -m 0700 "$NOVA_STATE/maintenance"
+  printf 'open\n' >"$NOVA_STATE/maintenance/reopen-after-boot"
+  chmod 0600 "$NOVA_STATE/maintenance/reopen-after-boot"
+  warn "release update requires reboot; traffic remains CLOSED until post-boot verification"
 fi
 
 trap - ERR
