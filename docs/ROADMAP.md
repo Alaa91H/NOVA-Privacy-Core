@@ -29,6 +29,9 @@ NOVA distinguishes **repository implementation** from **live acceptance**.
 - [x] T37 encrypted backup/restore implementation
 - [x] T38 supply-chain checks
 - [x] T39 CI/release pipeline
+- [x] T40 host-audit automation (live result still gated)
+- [x] T41 guarded failure-injection automation (physical-client observation still gated)
+- [x] T24–T30 capability/acceptance probes documented without false-positive "pass" states
 
 ## Feature-gated / live validation
 
