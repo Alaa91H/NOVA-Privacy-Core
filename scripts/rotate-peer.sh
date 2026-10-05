@@ -20,10 +20,10 @@ load_peer_registry "$peer"
 old_peer="$(mktemp)"
 old_psk="$(mktemp)"
 cp "$peer" "$old_peer"
-cp "$PSK_FILE" "$old_psk"
+cp "$PEER_PSK_FILE" "$old_psk"
 rollback() {
   cp "$old_peer" "$peer"
-  cp "$old_psk" "$PSK_FILE"
+  cp "$old_psk" "$PEER_PSK_FILE"
   "$ROOT/scripts/rebuild-awg-peers.sh" >/dev/null 2>&1 || true
   rm -f "$old_peer" "$old_psk"
 }
@@ -32,8 +32,8 @@ trap rollback ERR
 client_private="$(awg genkey)"
 client_public="$(printf '%s\n' "$client_private" | awg pubkey)"
 psk="$(awg genpsk)"
-printf '%s\n' "$psk" >"$PSK_FILE"
-chmod 0600 "$PSK_FILE"
+printf '%s\n' "$psk" >"$PEER_PSK_FILE"
+chmod 0600 "$PEER_PSK_FILE"
 
 python3 - "$peer" "$client_public" <<'PY'
 import pathlib,sys,shlex
@@ -51,7 +51,7 @@ PY
 chmod 0600 "$peer"
 
 "$ROOT/scripts/rebuild-awg-peers.sh"
-conf="$(write_client_config "$name" "$IP" "$client_private" "$psk")"
+conf="$(write_client_config "$name" "$PEER_IP" "$client_private" "$psk")"
 
 rm -f "$old_peer" "$old_psk"
 trap - ERR
