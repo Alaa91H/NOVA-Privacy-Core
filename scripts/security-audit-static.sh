@@ -11,7 +11,7 @@ ok() { printf 'PASS  %s\n' "$*"; }
 # Syntax-check all maintained shell entry points.
 while IFS= read -r -d '' f; do
   bash -n "$f" || bad "bash syntax: $f"
-done < <(find scripts src tests -type f -print0 2>/dev/null || true)
+done < <(find scripts tests -type f -name '*.sh' -print0 2>/dev/null; find src -type f -name 'privacyctl' -print0 2>/dev/null)
 [[ "$fail" -eq 0 ]] && ok "shell syntax"
 
 if command -v shellcheck >/dev/null 2>&1; then
