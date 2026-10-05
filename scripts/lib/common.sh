@@ -71,6 +71,31 @@ raise SystemExit(1)
 PY
 }
 
+is_ubuntu_2604() {
+  [[ -r /etc/os-release ]] || return 1
+  (
+    # shellcheck disable=SC1091
+    source /etc/os-release
+    [[ "${ID:-}" == "ubuntu" && "${VERSION_ID:-}" == "26.04" ]]
+  )
+}
+
+is_oci_host() {
+  local vendor=""
+  vendor="$(cat /sys/class/dmi/id/sys_vendor 2>/dev/null || true)"
+  if grep -Eqi 'Oracle|OracleCloud' <<<"$vendor"; then
+    return 0
+  fi
+  curl -fsS --connect-timeout 1 --max-time 2     -H 'Authorization: Bearer Oracle'     http://169.254.169.254/opc/v2/instance/ >/dev/null 2>&1
+}
+
+set_traffic_gate() {
+  local state="$1"
+  [[ "$state" == "open" || "$state" == "closed" ]] ||
+    die "traffic gate state must be open or closed"
+  write_runtime_kv NOVA_TRAFFIC_GATE "$state"
+}
+
 capture_bootstrap_ssh_cidr() {
   local ip="${SSH_CONNECTION%% *}"
   [[ -n "$ip" ]] || return 1
