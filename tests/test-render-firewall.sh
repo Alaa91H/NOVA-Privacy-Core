@@ -28,23 +28,31 @@ export NOVA_ADGUARD_PRIVATE_PORT=5300
 export NOVA_ADGUARD_STRICT_PORT=5301
 export NOVA_TRAFFIC_GATE=closed
 
-mkdir -p "$NOVA_ETC/peers.d" "$NOVA_STATE/doh" "$NOVA_RUN"
+mkdir -p   "$NOVA_ETC/peers.d"   "$NOVA_ETC/peer-secrets/strict"   "$NOVA_ETC/peer-secrets/management"   "$NOVA_STATE/doh"   "$NOVA_RUN"
+chmod 0700 "$NOVA_ETC/peer-secrets/strict" "$NOVA_ETC/peer-secrets/management"
 
-cat >"$NOVA_ETC/peers.d/strict.env" <<'EOF'
+printf '%s\n' 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=' >"$NOVA_ETC/peer-secrets/strict/psk"
+printf '%s\n' 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=' >"$NOVA_ETC/peer-secrets/management/psk"
+chmod 0600 "$NOVA_ETC/peer-secrets/strict/psk" "$NOVA_ETC/peer-secrets/management/psk"
+
+cat >"$NOVA_ETC/peers.d/strict.env" <<EOF
 NAME=strict
 IP=10.77.0.20
 PROFILE=STRICT
 MANAGEMENT=0
-PUBLIC_KEY=test
+PUBLIC_KEY=CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=
+PSK_FILE=$NOVA_ETC/peer-secrets/strict/psk
 EOF
 
-cat >"$NOVA_ETC/peers.d/management.env" <<'EOF'
+cat >"$NOVA_ETC/peers.d/management.env" <<EOF
 NAME=management
 IP=10.77.10.20
 PROFILE=PRIVATE
 MANAGEMENT=1
-PUBLIC_KEY=test2
+PUBLIC_KEY=DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD=
+PSK_FILE=$NOVA_ETC/peer-secrets/management/psk
 EOF
+chmod 0600 "$NOVA_ETC/peers.d/strict.env" "$NOVA_ETC/peers.d/management.env"
 
 python3 - "$NOVA_STATE/doh/doh-ipv4.txt" <<'PY'
 import ipaddress, pathlib, sys
