@@ -8,7 +8,11 @@ printf '== shell syntax ==\n'
 while IFS= read -r -d '' f; do
   printf '  %s\n' "$f"
   bash -n "$f"
-done < <(find scripts tests -type f -name '*.sh' -print0; find src -type f -name 'privacyctl' -print0)
+done < <(
+  find scripts tests -type f -name '*.sh' -print0
+  find src -type f -name 'privacyctl' -print0
+  find . -maxdepth 1 -type f -name 'install.sh' -print0
+)
 
 printf '== python tests ==\n'
 python3 tests/test_repository.py
