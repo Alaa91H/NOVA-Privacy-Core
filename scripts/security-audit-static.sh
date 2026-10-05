@@ -18,13 +18,15 @@ while IFS= read -r -d '' file; do
 done < <(
   find scripts tests -type f -name '*.sh' -print0 2>/dev/null
   find src -type f -name 'privacyctl' -print0 2>/dev/null
+  find . -maxdepth 1 -type f -name 'install.sh' -print0 2>/dev/null
 )
 [[ "$fail" -eq 0 ]] && ok "shell syntax"
 
 if command -v shellcheck >/dev/null 2>&1; then
   mapfile -d '' shell_files < <(
     find scripts src tests -type f \
-      \( -name '*.sh' -o -path '*/privacyctl' \) -print0 2>/dev/null || true
+      \( -name '*.sh' -o -path '*/privacyctl' \) -print0 2>/dev/null
+    find . -maxdepth 1 -type f -name 'install.sh' -print0 2>/dev/null
   )
   if [[ "${#shell_files[@]}" -gt 0 ]]; then
     shellcheck -x "${shell_files[@]}" || bad "ShellCheck"
@@ -82,7 +84,7 @@ else
 fi
 
 # 4. Reject unaudited pipe-to-shell installers.
-if git grep -nE --   'curl[^|]*\|[[:space:]]*(sudo[[:space:]]+)?(ba)?sh|wget[^|]*\|[[:space:]]*(sudo[[:space:]]+)?(ba)?sh'   -- scripts src config >"$tmp_pipe" 2>/dev/null; then
+if git grep -nE --   'curl[^|]*\|[[:space:]]*(sudo[[:space:]]+)?(ba)?sh|wget[^|]*\|[[:space:]]*(sudo[[:space:]]+)?(ba)?sh'   -- install.sh scripts src config >"$tmp_pipe" 2>/dev/null; then
   cat "$tmp_pipe" >&2
   bad "pipe-to-shell installer pattern"
 else
@@ -110,21 +112,27 @@ fi
 awg_install="scripts/install-awg.sh"
 if grep -Fq 'Pin: release o=LP-PPA-amnezia' "$awg_install" &&
    grep -Fq 'Pin-Priority: 1' "$awg_install" &&
-   grep -Fq 'Package: amneziawg amneziawg-tools amneziawg-dkms' "$awg_install"; then
-  ok "Amnezia PPA is constrained to its required package family"
+   grep -Fq 'Package: amneziawg-tools' "$awg_install" &&
+   grep -Fq 'Package: amneziawg amneziawg-dkms' "$awg_install" &&
+   grep -Fq 'Pin-Priority: -1' "$awg_install" &&
+   grep -Fq 'NOVA_AWG_BACKEND=userspace' "$awg_install" &&
+   grep -Fq 'sum.golang.org' "$awg_install"; then
+  ok "Amnezia PPA is tools-only; kernel packages are denied and userspace build is checksum-backed"
 else
-  bad "Amnezia PPA scope/pinning is incomplete"
+  bad "Amnezia PPA/userspace supply-chain scope is incomplete"
 fi
 
 # 8. Release provenance and target-OS gates.
 release=".github/workflows/release.yml"
 ci=".github/workflows/ci.yml"
-debian_digest='debian:13.7-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a'
-if grep -Fq "$debian_digest" "$ci" &&
-   grep -Fq "$debian_digest" "$release" &&
+ubuntu_digest='ubuntu:26.04@sha256:da6fc2be547864451aa253836dd926da33623312df4a9a243e35dc877c378a78'
+if grep -Fq "$ubuntu_digest" "$ci" &&
+   grep -Fq "$ubuntu_digest" "$release" &&
    grep -Fq 'release tag must point exactly at current main' "$release" &&
+   grep -Fq 'attest-build-provenance@' "$release" &&
+   grep -Fq 'gh attestation download' "$release" &&
    grep -Fq 'needs: validate' "$release"; then
-  ok "CI/release are Debian-target and provenance gated"
+  ok "CI/release are Ubuntu-26.04-target and provenance gated"
 else
   bad "CI/release target/provenance gate missing"
 fi
