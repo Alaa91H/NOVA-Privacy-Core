@@ -31,6 +31,9 @@ jobs:
       - name: Repository test suite
         run: bash tests/run.sh
 
+      - name: Privileged firewall renderer integration test
+        run: sudo -E bash tests/test-render-firewall.sh
+
       - name: Validate no generated secret paths are tracked
         run: |
           ! git ls-files | grep -E '(^|/)(peer-exports|secrets)/|\.(key|psk|p12|pfx)$'
