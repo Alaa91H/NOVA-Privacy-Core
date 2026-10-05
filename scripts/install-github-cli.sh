@@ -70,7 +70,8 @@ candidate="$(apt-cache policy gh | awk '/Candidate:/{print $2; exit}')"
 
 apt-get -o DPkg::Lock::Timeout=600 install -y --no-install-recommends gh
 
-gh attestation verify --help 2>/dev/null | grep -q -- '--bundle' ||
+gh_attestation_help="$(gh attestation verify --help 2>&1 || true)"
+grep -q -- '--bundle' <<<"$gh_attestation_help" ||
   die "installed GitHub CLI does not support local attestation bundles"
 
 installed="$(dpkg-query -W -f='${Version}' gh 2>/dev/null || echo unknown)"
