@@ -1,0 +1,186 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 077
+
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/lib/common.sh
+source "$ROOT/scripts/lib/common.sh"
+require_root
+load_runtime
+
+usage() {
+  cat <<'EOF'
+privacyctl <command>
+
+Commands:
+  status
+  health
+  peers
+  peer add NAME [PROFILE] [--management]
+  peer revoke NAME
+  peer rotate NAME
+  profile list
+  profile set NAME PROFILE
+  firewall check
+  dns status
+  awg mode balanced|max
+  lockdown
+  bootstrap-ssh CIDR
+  leaks test
+  backup [OUTPUT]
+  restore FILE
+  update check
+  version
+EOF
+}
+
+service_state() {
+  if systemctl is-active --quiet "$1"; then printf 'active'; else printf 'inactive'; fi
+}
+
+cmd_status() {
+  printf 'NOVA Privacy Core %s\n' "$(cat "$ROOT/VERSION" 2>/dev/null || echo unknown)"
+  printf 'AWG: %s\n' "$(service_state nova-awg.service)"
+  printf 'Firewall: %s\n' "$(service_state nova-firewall.service)"
+  printf 'Unbound: %s\n' "$(service_state unbound.service)"
+  printf 'AdGuard private: %s\n' "$(service_state nova-adguard-private.service)"
+  printf 'AdGuard strict: %s\n' "$(service_state nova-adguard-strict.service)"
+  printf 'AWG mode: %s\n' "${NOVA_AWG_MODE:-unknown}"
+  printf 'Public endpoint: %s\n' "${NOVA_PUBLIC_ENDPOINT:-unset}"
+  if command -v awg >/dev/null 2>&1 && ip link show "$NOVA_VPN_IF" >/dev/null 2>&1; then
+    awg show "$NOVA_VPN_IF" endpoints latest-handshakes transfer 2>/dev/null || true
+  fi
+}
+
+cmd_health() {
+  local failed=0 service
+  for service in nova-awg.service nova-firewall.service unbound.service nova-adguard-private.service nova-adguard-strict.service; do
+    if ! systemctl is-active --quiet "$service"; then
+      printf 'FAIL service %s\n' "$service"
+      failed=1
+    fi
+  done
+  if ! nft list table inet nova >/dev/null 2>&1; then
+    printf 'FAIL nft table inet nova missing\n'
+    failed=1
+  fi
+  if ! ip link show "$NOVA_VPN_IF" >/dev/null 2>&1; then
+    printf 'FAIL interface %s missing\n' "$NOVA_VPN_IF"
+    failed=1
+  fi
+  if ss -lntup | grep -E '(^|[[:space:]])0\.0\.0\.0:(53|3000|3001|5300|5301|5335)([[:space:]]|$)' >/dev/null; then
+    printf 'FAIL sensitive service listening on all IPv4 interfaces\n'
+    failed=1
+  fi
+  if [[ "$failed" -eq 0 ]]; then
+    printf 'OK\n'
+  fi
+  return "$failed"
+}
+
+cmd_peers() {
+  local f
+  printf '%-20s %-15s %-12s %-5s\n' NAME IP PROFILE MGMT
+  shopt -s nullglob
+  for f in "$NOVA_ETC"/peers.d/*.env; do
+    unset NAME IP PROFILE MANAGEMENT
+    # shellcheck disable=SC1090
+    source "$f"
+    printf '%-20s %-15s %-12s %-5s\n' "$NAME" "$IP" "$PROFILE" "${MANAGEMENT:-0}"
+  done
+}
+
+recent_management_handshake() {
+  local now key ts f
+  now="$(date +%s)"
+  declare -A hs=()
+  while read -r key ts; do
+    [[ -n "$key" ]] && hs["$key"]="$ts"
+  done < <(awg show "$NOVA_VPN_IF" latest-handshakes 2>/dev/null || true)
+
+  shopt -s nullglob
+  for f in "$NOVA_ETC"/peers.d/*.env; do
+    unset MANAGEMENT PUBLIC_KEY
+    # shellcheck disable=SC1090
+    source "$f"
+    if [[ "${MANAGEMENT:-0}" == "1" ]]; then
+      ts="${hs[$PUBLIC_KEY]:-0}"
+      if [[ "$ts" =~ ^[0-9]+$ ]] && (( ts > 0 && now - ts <= 300 )); then
+        return 0
+      fi
+    fi
+  done
+  return 1
+}
+
+case "${1:-}" in
+  status) cmd_status ;;
+  health) cmd_health ;;
+  peers) cmd_peers ;;
+  peer)
+    case "${2:-}" in
+      add) shift 2; exec "$ROOT/scripts/create-peer.sh" "$@" ;;
+      revoke) exec "$ROOT/scripts/revoke-peer.sh" "${3:-}" ;;
+      rotate) exec "$ROOT/scripts/rotate-peer.sh" "${3:-}" ;;
+      *) usage; exit 2 ;;
+    esac
+    ;;
+  profile)
+    case "${2:-}" in
+      list) printf '%s\n' COMPAT PRIVATE STRICT TOR-ANON MAX-MIX LOCKDOWN ;;
+      set) exec "$ROOT/scripts/set-profile.sh" "${3:-}" "${4:-}" ;;
+      *) usage; exit 2 ;;
+    esac
+    ;;
+  firewall)
+    [[ "${2:-}" == "check" ]] || { usage; exit 2; }
+    nft -c -f "$NOVA_ETC/nftables/nova.nft"
+    nft list table inet nova
+    ;;
+  dns)
+    [[ "${2:-}" == "status" ]] || { usage; exit 2; }
+    systemctl --no-pager --full status unbound.service nova-adguard-private.service nova-adguard-strict.service
+    ;;
+  awg)
+    [[ "${2:-}" == "mode" ]] || { usage; exit 2; }
+    mode="${3:-}"
+    [[ "$mode" == "balanced" || "$mode" == "max" ]] || die "mode must be balanced or max"
+    shopt -s nullglob
+    peers=("$NOVA_ETC"/peers.d/*.env)
+    [[ "${#peers[@]}" -eq 0 ]] || die "AWG mode changes require peer reprovisioning; revoke peers first"
+    exec "$ROOT/scripts/configure-awg.sh" "$mode"
+    ;;
+  lockdown)
+    recent_management_handshake || die "no management peer has a handshake in the last 5 minutes"
+    write_runtime_kv NOVA_BOOTSTRAP_SSH_CIDR ""
+    "$ROOT/scripts/render-firewall.sh"
+    log "public bootstrap SSH rule removed"
+    ;;
+  bootstrap-ssh)
+    cidr="${2:-}"
+    [[ -n "$cidr" ]] || die "CIDR required"
+    write_runtime_kv NOVA_BOOTSTRAP_SSH_CIDR "$cidr"
+    exec "$ROOT/scripts/render-firewall.sh"
+    ;;
+  leaks)
+    [[ "${2:-}" == "test" ]] || { usage; exit 2; }
+    exec "$ROOT/scripts/verify-leaks.sh"
+    ;;
+  backup)
+    exec "$ROOT/scripts/backup.sh" "${2:-}"
+    ;;
+  restore)
+    exec "$ROOT/scripts/restore.sh" "${2:-}"
+    ;;
+  update)
+    [[ "${2:-}" == "check" ]] || { usage; exit 2; }
+    exec "$ROOT/scripts/update-components.sh" --check
+    ;;
+  version)
+    cat "$ROOT/VERSION"
+    ;;
+  *)
+    usage
+    exit 2
+    ;;
+esac
