@@ -30,6 +30,18 @@ load_runtime() {
   fi
 }
 
+
+acquire_nova_lock() {
+  [[ "${NOVA_LOCK_HELD:-0}" == "1" ]] && return 0
+  require_cmd flock
+  mkdir -p "$NOVA_RUN"
+  chmod 0755 "$NOVA_RUN"
+  exec {NOVA_LOCK_FD}>"$NOVA_RUN/control.lock"
+  flock -w "${NOVA_LOCK_TIMEOUT:-30}" "$NOVA_LOCK_FD" ||
+    die "timed out waiting for NOVA control lock"
+  export NOVA_LOCK_HELD=1
+}
+
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"
 }
