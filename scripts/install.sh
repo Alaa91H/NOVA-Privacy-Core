@@ -35,6 +35,9 @@ chmod 0755 "$ROOT/src/privacyctl"
 log "T04 bootstrap"
 bash "$ROOT/scripts/bootstrap.sh"
 
+log "T04.5 dynamic memory pressure protection"
+bash "$ROOT/scripts/configure-memory.sh"
+
 log "T05 host hardening"
 bash "$ROOT/scripts/harden.sh"
 
@@ -47,18 +50,24 @@ bash "$ROOT/scripts/install-awg.sh"
 log "T08 AmneziaWG configuration"
 bash "$ROOT/scripts/configure-awg.sh" "${NOVA_AWG_MODE:-balanced}"
 
+log "resolving latest signed stable application releases"
+bash "$ROOT/scripts/resolve-versions.sh" adguard
+
 log "T13-T17 DNS privacy/filtering stack"
 bash "$ROOT/scripts/install-dns.sh"
 
 log "T18 STRICT encrypted-DNS bypass guard"
 bash "$ROOT/scripts/install-doh-guard.sh"
 
-log "refreshing firewall after service installation"
+log "installing automatic system/kernel/application update and cleanup policy"
+bash "$ROOT/scripts/install-automation.sh"
+
+log "refreshing fail-closed firewall after service installation"
 bash "$ROOT/scripts/render-firewall.sh"
 
 ln -sfn "$ROOT/src/privacyctl" /usr/local/bin/privacyctl
 
-log "running host verification"
+log "running host verification with protected forwarding still CLOSED"
 if ! "$ROOT/src/privacyctl" health; then
   die "installation completed with failed health checks"
 fi
@@ -76,11 +85,20 @@ NEXT STEPS:
   3. Confirm a recent handshake:
        sudo privacyctl status
 
-  4. From the VPN-connected management device, remove the temporary public SSH rule:
-       sudo privacyctl lockdown
-
-  5. Run:
+  4. Run the leak/security checks:
        sudo privacyctl leaks test
+       sudo privacyctl acceptance server
 
-Do not close your original bootstrap SSH session before step 3 succeeds.
+  5. Activate production forwarding atomically:
+       sudo privacyctl activate
+
+     This requires a recent management-peer handshake, removes the temporary
+     public SSH rule, and opens the traffic gate only after all server gates pass.
+
+  6. Confirm:
+       sudo privacyctl gate status
+       sudo privacyctl acceptance server
+
+If /var/run/reboot-required exists, reboot first and rerun the checks.
+Do not close your original bootstrap SSH session before the management peer succeeds.
 EOF
