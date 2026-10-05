@@ -23,6 +23,8 @@ def test_firewall():
     # A default-drop host firewall must not silently break the cloud DHCP lease.
     assert 'udp sport 68 udp dport 67 accept' in text
     assert 'udp sport 67 udp dport 68 accept' in text
+    assert "set doh4" in text
+    assert "ip saddr @strict4 ip daddr @doh4 drop" in text
 
 def test_lockdown_precedes_conntrack_accept():
     text = read("config/nftables/nova.nft.in")
@@ -53,6 +55,8 @@ def test_dns_privacy():
     assert "harden-dnssec-stripped: yes" in unbound
     assert "hide-version: yes" in unbound
     assert "do-ip6: no" in unbound
+    assert "NOVA Encrypted DNS Bypass" in adg
+    assert "enabled: @@DOH_FILTER_ENABLED@@" in adg
 
 def test_release_authenticity():
     defaults = read("config/defaults.env")
@@ -63,6 +67,18 @@ def test_release_authenticity():
     assert "AdGuardHome.sig" in installer
     assert "fingerprint mismatch" in installer
     assert "unsafe archive path" in installer
+
+def test_strict_doh_guard():
+    defaults = read("config/defaults.env")
+    updater = read("scripts/update-doh-ips.sh")
+    installer = read("scripts/install-doh-guard.sh")
+    assert "adblock/doh.txt" in defaults
+    assert "ips/doh.txt" in defaults
+    assert "refusing suspiciously small encrypted-DNS IP list" in updater
+    assert "ipaddress.ip_address" in updater
+    assert "cmp -s" in updater
+    assert "nova-doh-ips.timer" in installer
+
 
 def test_awg_safety():
     cfg = read("scripts/configure-awg.sh")
@@ -93,6 +109,7 @@ def test_installer_order():
         "install-awg.sh",
         "configure-awg.sh",
         "install-dns.sh",
+        "install-doh-guard.sh",
     ]
     positions = [text.index(x) for x in expected]
     assert positions == sorted(positions), "security-sensitive installation order changed"
@@ -121,6 +138,7 @@ def main():
         test_early_firewall_boot_order,
         test_dns_privacy,
         test_release_authenticity,
+        test_strict_doh_guard,
         test_awg_safety,
         test_peer_key_separation,
         test_installer_order,
