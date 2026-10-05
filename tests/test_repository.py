@@ -24,6 +24,16 @@ def test_firewall():
     assert 'udp sport 68 udp dport 67 accept' in text
     assert 'udp sport 67 udp dport 68 accept' in text
 
+def test_lockdown_precedes_conntrack_accept():
+    text = read("config/nftables/nova.nft.in")
+    m = re.search(r"chain forward \{(.*?)\n  \}", text, re.S)
+    assert m, "forward chain not found"
+    forward = m.group(1)
+    assert forward.index("@lockdown4 drop") < forward.index("ct state established,related accept"), (
+        "LOCKDOWN must override already-established forwarding flows"
+    )
+
+
 def test_early_firewall_boot_order():
     unit = read("config/systemd/nova-firewall.service")
     assert "DefaultDependencies=no" in unit
@@ -107,6 +117,7 @@ def test_version():
 def main():
     tests = [
         test_firewall,
+        test_lockdown_precedes_conntrack_accept,
         test_early_firewall_boot_order,
         test_dns_privacy,
         test_release_authenticity,
