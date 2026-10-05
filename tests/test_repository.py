@@ -121,6 +121,17 @@ def test_peer_key_separation():
     assert "PresharedKey = $psk" in helper
     assert "AllowedIPs = 0.0.0.0/0, ::/0" in helper
 
+def test_forwarding_enabled_only_after_firewall():
+    hardening = read("config/sysctl/99-nova-privacy.conf")
+    routing = read("config/sysctl/99-nova-routing.conf")
+    installer = read("scripts/install-firewall.sh")
+    assert "net.ipv4.ip_forward = 1" not in hardening
+    assert "net.ipv4.ip_forward = 1" in routing
+    fw_pos = installer.index('"$ROOT/scripts/render-firewall.sh"')
+    route_pos = installer.index("99-nova-routing.conf")
+    assert fw_pos < route_pos, "packet forwarding must be enabled only after firewall load"
+
+
 def test_installer_order():
     text = read("scripts/install.sh")
     expected = [
@@ -163,6 +174,7 @@ def main():
         test_strict_doh_guard,
         test_awg_safety,
         test_peer_key_separation,
+        test_forwarding_enabled_only_after_firewall,
         test_installer_order,
         test_no_tls_mitm,
         test_secret_ignores,
