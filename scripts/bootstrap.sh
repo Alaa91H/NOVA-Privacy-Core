@@ -10,6 +10,15 @@ load_defaults
 
 export DEBIAN_FRONTEND=noninteractive
 
+runtime="$NOVA_ETC/nova.env"
+first_install=1
+if [[ -r "$runtime" ]]; then
+  first_install=0
+  # Existing root-owned runtime state is authoritative during upgrades.
+  # shellcheck disable=SC1090
+  source "$runtime"
+fi
+
 is_ubuntu_2604 ||
   die "NOVA production baseline requires Ubuntu Server/Minimal 26.04 LTS; detected $(. /etc/os-release 2>/dev/null; printf '%s' "${PRETTY_NAME:-unknown}")"
 
@@ -86,15 +95,13 @@ if [[ -z "$endpoint" ]]; then
 fi
 
 bootstrap_cidr="${NOVA_BOOTSTRAP_SSH_CIDR:-}"
-if [[ -z "$bootstrap_cidr" ]]; then
+if [[ "$first_install" -eq 1 && -z "$bootstrap_cidr" ]]; then
   bootstrap_cidr="$(capture_bootstrap_ssh_cidr || true)"
 fi
-[[ -n "$bootstrap_cidr" ]] ||
+if [[ "$first_install" -eq 1 && -z "$bootstrap_cidr" ]]; then
   warn "SSH source not detected; do not activate the firewall remotely without Oracle Console/OOB access"
+fi
 
-runtime="$NOVA_ETC/nova.env"
-first_install=0
-[[ -e "$runtime" ]] || first_install=1
 touch "$runtime"
 chmod 0600 "$runtime"
 
