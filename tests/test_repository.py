@@ -463,7 +463,7 @@ def test_bootstrap_is_release_first_and_not_pipe_to_shell():
 def test_privacyctl_is_single_canonical_control_plane():
     ctl = read("src/privacyctl")
     assert ctl.count("#!/usr/bin/env bash") == 1
-    assert len(re.findall(r'^case "\\$\\{1:-\\}" in$', ctl, re.M)) == 1
+    assert sum(1 for line in ctl.splitlines() if line == 'case "${1:-}" in') == 1
     assert ctl.count("cmd_health() {") == 1
     assert ctl.count("cmd_activate() {") == 1
     assert "valid_cidr" in ctl
