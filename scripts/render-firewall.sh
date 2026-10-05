@@ -29,28 +29,31 @@ collect_ips() {
   printf '%s' "${out[*]:-}"
 }
 
-export WAN_IF="${NOVA_WAN_IF}"
-export VPN_IF="${NOVA_VPN_IF}"
-export AWG_PORT="${NOVA_AWG_PORT}"
-export VPN_NET="${NOVA_VPN_NET}"
-export MGMT_NET="${NOVA_MGMT_NET}"
-export PRIVATE_DNS_PORT="${NOVA_ADGUARD_PRIVATE_PORT}"
-export STRICT_DNS_PORT="${NOVA_ADGUARD_STRICT_PORT}"
-export UNBOUND_PORT="${NOVA_UNBOUND_PORT}"
-export COMPAT_ELEMENTS="$(collect_ips COMPAT)"
-export STRICT_ELEMENTS="$(collect_ips STRICT)"
-export MGMT_ELEMENTS="$(collect_ips ignored management)"
-export LOCKDOWN_ELEMENTS="$(collect_ips LOCKDOWN)"
+WAN_IF="${NOVA_WAN_IF}"
+VPN_IF="${NOVA_VPN_IF}"
+AWG_PORT="${NOVA_AWG_PORT}"
+VPN_NET="${NOVA_VPN_NET}"
+MGMT_NET="${NOVA_MGMT_NET}"
+PRIVATE_DNS_PORT="${NOVA_ADGUARD_PRIVATE_PORT}"
+STRICT_DNS_PORT="${NOVA_ADGUARD_STRICT_PORT}"
+UNBOUND_PORT="${NOVA_UNBOUND_PORT}"
+COMPAT_ELEMENTS="$(collect_ips COMPAT)"
+STRICT_ELEMENTS="$(collect_ips STRICT)"
+MGMT_ELEMENTS="$(collect_ips ignored management)"
+LOCKDOWN_ELEMENTS="$(collect_ips LOCKDOWN)"
+export WAN_IF VPN_IF AWG_PORT VPN_NET MGMT_NET PRIVATE_DNS_PORT STRICT_DNS_PORT UNBOUND_PORT
+export COMPAT_ELEMENTS STRICT_ELEMENTS MGMT_ELEMENTS LOCKDOWN_ELEMENTS
 
 if [[ -n "${NOVA_BOOTSTRAP_SSH_CIDR:-}" ]]; then
   if [[ "$NOVA_BOOTSTRAP_SSH_CIDR" == *:* ]]; then
-    export BOOTSTRAP_SSH_RULE="    iifname \"${NOVA_WAN_IF}\" ip6 saddr ${NOVA_BOOTSTRAP_SSH_CIDR} tcp dport 22 accept"
+    BOOTSTRAP_SSH_RULE="    iifname \"${NOVA_WAN_IF}\" ip6 saddr ${NOVA_BOOTSTRAP_SSH_CIDR} tcp dport 22 accept"
   else
-    export BOOTSTRAP_SSH_RULE="    iifname \"${NOVA_WAN_IF}\" ip saddr ${NOVA_BOOTSTRAP_SSH_CIDR} tcp dport 22 accept"
+    BOOTSTRAP_SSH_RULE="    iifname \"${NOVA_WAN_IF}\" ip saddr ${NOVA_BOOTSTRAP_SSH_CIDR} tcp dport 22 accept"
   fi
 else
-  export BOOTSTRAP_SSH_RULE=""
+  BOOTSTRAP_SSH_RULE=""
 fi
+export BOOTSTRAP_SSH_RULE
 
 candidate="${NOVA_ETC}/nftables/nova.nft.candidate"
 final="${NOVA_ETC}/nftables/nova.nft"
