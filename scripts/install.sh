@@ -11,7 +11,21 @@ load_defaults
 if [[ "$SOURCE_ROOT" != "$NOVA_INSTALL_ROOT" ]]; then
   log "staging NOVA into $NOVA_INSTALL_ROOT"
   mkdir -p "$NOVA_INSTALL_ROOT"
-  tar --exclude=.git --exclude=.build --exclude=dist -C "$SOURCE_ROOT" -cf - . |     tar -C "$NOVA_INSTALL_ROOT" -xf -
+
+  if command -v rsync >/dev/null 2>&1; then
+    # Exact mirror: deleted repository files must not survive an upgrade and
+    # continue to be reachable by systemd/root tooling.
+    rsync -a --delete       --exclude='.git/'       --exclude='.build/'       --exclude='dist/'       "$SOURCE_ROOT/" "$NOVA_INSTALL_ROOT/"
+  else
+    # A first install can safely use tar when the target is empty.  Updating a
+    # non-empty installation without --delete semantics is refused because
+    # stale privileged scripts are a supply-chain risk.
+    if find "$NOVA_INSTALL_ROOT" -mindepth 1 -maxdepth 1 -print -quit | grep -q .; then
+      die "rsync is required to update a non-empty NOVA installation safely"
+    fi
+    tar --exclude=.git --exclude=.build --exclude=dist -C "$SOURCE_ROOT" -cf - . |
+      tar -C "$NOVA_INSTALL_ROOT" -xf -
+  fi
 fi
 
 ROOT="$NOVA_INSTALL_ROOT"
