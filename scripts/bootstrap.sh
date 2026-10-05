@@ -15,15 +15,25 @@ if [[ ! -r /etc/os-release ]]; then
 fi
 # shellcheck disable=SC1091
 source /etc/os-release
-[[ "${ID:-}" == "debian" ]] || warn "target baseline is Debian; detected ${ID:-unknown}"
+[[ "${ID:-}" == "debian" && "${VERSION_ID%%.*}" == "13" ]] ||
+  die "NOVA v1 production baseline requires Debian 13; detected ${PRETTY_NAME:-unknown}"
 
 apt-get update
 apt-get install -y --no-install-recommends \
-  ca-certificates curl jq gnupg openssl python3 util-linux \
+  ca-certificates curl jq gnupg openssl python3 util-linux rsync sudo \
   nftables unbound dns-root-data bind9-dnsutils \
   openssh-server qrencode zram-tools age apache2-utils \
   apparmor apparmor-utils unattended-upgrades \
   "linux-headers-$(uname -r)"
+
+unbound_pkg="$(dpkg-query -W -f='${Version}' unbound 2>/dev/null || true)"
+[[ -n "$unbound_pkg" ]] || die "Unbound package is not installed"
+dpkg --compare-versions "$unbound_pkg" ge "1.26.1-0" ||
+  die "Unbound >= 1.26.1 is required for the current security baseline; installed: $unbound_pkg"
+
+if [[ -n "${SSH_CONNECTION:-}" && "${SSH_CONNECTION%% *}" == *:* ]]; then
+  die "active SSH session uses IPv6 but NOVA v1 disables IPv6; reconnect over IPv4 or use Oracle Console"
+fi
 
 mkdir -p "$NOVA_ETC" "$NOVA_STATE" "$NOVA_RUN" "$NOVA_INSTALL_ROOT"
 chmod 0700 "$NOVA_ETC" "$NOVA_STATE"
