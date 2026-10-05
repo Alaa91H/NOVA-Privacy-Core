@@ -6,19 +6,21 @@ on:
       - "v*"
 
 permissions:
-  contents: write
-  id-token: write
-  attestations: write
+  contents: read
 
 jobs:
-  release:
+  validate:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 35
+    permissions:
+      contents: read
     steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Checkout tagged commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
 
-      - name: Verify tag matches VERSION
+      - name: Verify release tag and main provenance
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -27,6 +29,46 @@ jobs:
             echo "tag $GITHUB_REF_NAME does not match VERSION ($expected)" >&2
             exit 1
           }
+
+          grep -Fq "## [$(cat VERSION)]" CHANGELOG.md || {
+            echo "CHANGELOG.md has no released section for $(cat VERSION)" >&2
+            exit 1
+          }
+
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          tag_commit="$(git rev-parse "$GITHUB_SHA^{commit}")"
+          main_commit="$(git rev-parse refs/remotes/origin/main^{commit})"
+          [[ "$tag_commit" == "$main_commit" ]] || {
+            echo "release tag must point exactly at current main" >&2
+            echo "tag=$tag_commit main=$main_commit" >&2
+            exit 1
+          }
+
+      - name: Install validation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends             shellcheck nftables python3 python3-yaml
+
+      - name: Repository validation
+        run: |
+          bash tests/run.sh
+          sudo -E bash tests/test-render-firewall.sh
+
+      - name: Target Ubuntu 26.04 LTS and AWG supply-chain smoke
+        run: |
+          docker run --rm --platform linux/amd64             -v "$PWD:/src:ro"             ubuntu:26.04@sha256:da6fc2be547864451aa253836dd926da33623312df4a9a243e35dc877c378a78             bash /src/tests/ubuntu26-smoke.sh
+
+  release:
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout tagged commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Build reproducible source release
         shell: bash
@@ -42,14 +84,34 @@ jobs:
           )
 
       - name: Attest release provenance
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
         with:
-          subject-path: |
-            dist/*.tar.gz
-            dist/SHA256SUMS
+          subject-path: dist/*.tar.gz
+
+      - name: Install verified official GitHub CLI
+        run: sudo -E bash scripts/install-github-cli.sh
+
+      - name: Export provenance bundle for tokenless host verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          archive="$(find dist -maxdepth 1 -type f -name '*.tar.gz' -printf '%f\n' | head -n1)"
+          [[ -n "$archive" ]]
+          (
+            cd dist
+            digest="$(sha256sum "$archive" | awk '{print $1}')"
+            gh attestation download "$archive" --repo "$GITHUB_REPOSITORY"
+            bundle="sha256:$digest.jsonl"
+            [[ -s "$bundle" ]]
+            mv "$bundle" "NOVA-Privacy-Core-$GITHUB_REF_NAME.attestation.jsonl"
+          )
 
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
-          gh release create "$GITHUB_REF_NAME"             dist/*.tar.gz             dist/SHA256SUMS             --verify-tag             --generate-notes             --title "NOVA Privacy Core $GITHUB_REF_NAME"
+          set -Eeuo pipefail
+          gh release create "$GITHUB_REF_NAME"             dist/*.tar.gz             dist/SHA256SUMS             dist/*.attestation.jsonl             --verify-tag             --generate-notes             --title "NOVA Privacy Core $GITHUB_REF_NAME"

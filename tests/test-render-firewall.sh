@@ -26,24 +26,33 @@ export NOVA_BOOTSTRAP_SSH_CIDR=198.51.100.10/32
 export NOVA_UNBOUND_PORT=5335
 export NOVA_ADGUARD_PRIVATE_PORT=5300
 export NOVA_ADGUARD_STRICT_PORT=5301
+export NOVA_TRAFFIC_GATE=closed
 
-mkdir -p "$NOVA_ETC/peers.d" "$NOVA_STATE/doh" "$NOVA_RUN"
+mkdir -p   "$NOVA_ETC/peers.d"   "$NOVA_ETC/peer-secrets/strict"   "$NOVA_ETC/peer-secrets/management"   "$NOVA_STATE/doh"   "$NOVA_RUN"
+chmod 0700 "$NOVA_ETC/peer-secrets/strict" "$NOVA_ETC/peer-secrets/management"
 
-cat >"$NOVA_ETC/peers.d/strict.env" <<'EOF'
+printf '%s\n' 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=' >"$NOVA_ETC/peer-secrets/strict/psk"
+printf '%s\n' 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=' >"$NOVA_ETC/peer-secrets/management/psk"
+chmod 0600 "$NOVA_ETC/peer-secrets/strict/psk" "$NOVA_ETC/peer-secrets/management/psk"
+
+cat >"$NOVA_ETC/peers.d/strict.env" <<EOF
 NAME=strict
 IP=10.77.0.20
 PROFILE=STRICT
 MANAGEMENT=0
-PUBLIC_KEY=test
+PUBLIC_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+PSK_FILE=$NOVA_ETC/peer-secrets/strict/psk
 EOF
 
-cat >"$NOVA_ETC/peers.d/management.env" <<'EOF'
+cat >"$NOVA_ETC/peers.d/management.env" <<EOF
 NAME=management
 IP=10.77.10.20
 PROFILE=PRIVATE
 MANAGEMENT=1
-PUBLIC_KEY=test2
+PUBLIC_KEY=AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=
+PSK_FILE=$NOVA_ETC/peer-secrets/management/psk
 EOF
+chmod 0600 "$NOVA_ETC/peers.d/strict.env" "$NOVA_ETC/peers.d/management.env"
 
 python3 - "$NOVA_STATE/doh/doh-ipv4.txt" <<'PY'
 import ipaddress, pathlib, sys
@@ -74,5 +83,14 @@ rendered="$NOVA_ETC/nftables/nova.nft"
 grep -q '198.51.100.10/32 tcp dport 22 accept' "$rendered"
 grep -q 'elements = { 10.77.0.20 }' "$rendered"
 grep -q 'elements = { 10.77.10.20 }' "$rendered"
+grep -q 'NOVA_TRAFFIC_GATE_CLOSED' "$rendered"
 
-printf 'PASS test-render-firewall runtime rendering\n'
+export NOVA_TRAFFIC_GATE=open
+bash "$ROOT/scripts/render-firewall.sh"
+rendered="$NOVA_ETC/nftables/nova.nft"
+if grep -q 'NOVA_TRAFFIC_GATE_CLOSED' "$rendered"; then
+  printf 'FAIL open traffic gate still rendered CLOSED marker\n' >&2
+  exit 1
+fi
+
+printf 'PASS test-render-firewall closed/open gate rendering\n'

@@ -71,6 +71,31 @@ raise SystemExit(1)
 PY
 }
 
+is_ubuntu_2604() {
+  [[ -r /etc/os-release ]] || return 1
+  (
+    # shellcheck disable=SC1091
+    source /etc/os-release
+    [[ "${ID:-}" == "ubuntu" && "${VERSION_ID:-}" == "26.04" ]]
+  )
+}
+
+is_oci_host() {
+  local vendor=""
+  vendor="$(cat /sys/class/dmi/id/sys_vendor 2>/dev/null || true)"
+  if grep -Eqi 'Oracle|OracleCloud' <<<"$vendor"; then
+    return 0
+  fi
+  curl -fsS --connect-timeout 1 --max-time 2     -H 'Authorization: Bearer Oracle'     http://169.254.169.254/opc/v2/instance/ >/dev/null 2>&1
+}
+
+set_traffic_gate() {
+  local state="$1"
+  [[ "$state" == "open" || "$state" == "closed" ]] ||
+    die "traffic gate state must be open or closed"
+  write_runtime_kv NOVA_TRAFFIC_GATE "$state"
+}
+
 capture_bootstrap_ssh_cidr() {
   local ip="${SSH_CONNECTION%% *}"
   [[ -n "$ip" ]] || return 1
@@ -90,6 +115,73 @@ valid_profile() {
     COMPAT|PRIVATE|STRICT|LOCKDOWN) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+
+valid_peer_ip_for_role() {
+  local ip="$1" management="$2"
+  python3 - "$ip" "$management" "$NOVA_VPN_NET" "$NOVA_MGMT_NET" <<'PY'
+import ipaddress,sys
+ip=ipaddress.ip_address(sys.argv[1])
+if ip.version != 4:
+    raise SystemExit(1)
+management=sys.argv[2] == "1"
+net=ipaddress.ip_network(sys.argv[4] if management else sys.argv[3], strict=False)
+if ip not in net or ip == net.network_address or ip == net.broadcast_address:
+    raise SystemExit(1)
+PY
+}
+
+load_peer_registry() {
+  local file="$1" key value perm owner expected
+  [[ -f "$file" && ! -L "$file" ]] || die "invalid peer registry file: $file"
+
+  owner="$(stat -c %u "$file")"
+  perm="$(stat -c %a "$file")"
+  [[ "$owner" == "0" ]] || die "peer registry must be root-owned: $file"
+  (( (8#$perm & 077) == 0 )) || die "peer registry must not be group/world accessible: $file"
+
+  unset PEER_NAME PEER_IP PEER_PROFILE PEER_MANAGEMENT PEER_PUBLIC_KEY PEER_PSK_FILE
+  local line
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -n "$line" ]] || continue
+    [[ "$line" == *=* ]] || die "invalid peer registry line in $file"
+    key="${line%%=*}"
+    value="${line#*=}"
+    [[ "$key" =~ ^[A-Z_]+$ ]] || die "invalid peer registry key syntax in $file"
+    case "$key" in
+      NAME) PEER_NAME="$value" ;;
+      IP) PEER_IP="$value" ;;
+      PROFILE) PEER_PROFILE="$value" ;;
+      MANAGEMENT) PEER_MANAGEMENT="$value" ;;
+      PUBLIC_KEY) PEER_PUBLIC_KEY="$value" ;;
+      PSK_FILE) PEER_PSK_FILE="$value" ;;
+      *) die "unknown peer registry key '$key' in $file" ;;
+    esac
+  done <"$file"
+
+  [[ -n "${PEER_NAME:-}" && -n "${PEER_IP:-}" && -n "${PEER_PROFILE:-}" &&
+     -n "${PEER_MANAGEMENT:-}" && -n "${PEER_PUBLIC_KEY:-}" &&
+     -n "${PEER_PSK_FILE:-}" ]] ||
+    die "incomplete peer registry: $file"
+
+  valid_peer_name "$PEER_NAME" || die "invalid peer name in registry: $file"
+  valid_profile "$PEER_PROFILE" || die "invalid peer profile in registry: $file"
+  [[ "$PEER_MANAGEMENT" == "0" || "$PEER_MANAGEMENT" == "1" ]] ||
+    die "invalid management flag in registry: $file"
+  [[ "$PEER_PUBLIC_KEY" =~ ^[A-Za-z0-9+/]{43}=$ ]] ||
+    die "invalid peer public key encoding in registry: $file"
+  valid_peer_ip_for_role "$PEER_IP" "$PEER_MANAGEMENT" ||
+    die "peer IP does not belong to its assigned NOVA network: $file"
+
+  expected="$NOVA_ETC/peer-secrets/$PEER_NAME/psk"
+  [[ "$PEER_PSK_FILE" == "$expected" ]] ||
+    die "unexpected peer PSK path in registry: $file"
+  [[ -f "$PEER_PSK_FILE" && ! -L "$PEER_PSK_FILE" ]] ||
+    die "peer PSK file missing or unsafe: $PEER_PSK_FILE"
+
+  [[ "$(basename "$file")" == "$PEER_NAME.env" ]] ||
+    die "peer registry filename/name mismatch: $file"
 }
 
 write_runtime_kv() {

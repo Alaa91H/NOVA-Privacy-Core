@@ -1,0 +1,9 @@
+[Unit]
+Description=NOVA bounded cleanup
+
+[Service]
+Type=oneshot
+ExecStart=/opt/nova-privacy/scripts/cleanup.sh
+UMask=0077
+Nice=19
+IOSchedulingClass=idle

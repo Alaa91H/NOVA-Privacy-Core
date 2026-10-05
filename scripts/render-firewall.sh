@@ -24,13 +24,11 @@ collect_ips() {
   local -a out=()
   shopt -s nullglob
   for f in "$PEER_DIR"/*.env; do
-    unset NAME IP PROFILE MANAGEMENT PUBLIC_KEY
-    # shellcheck disable=SC1090
-    source "$f"
-    if [[ "$mode" == "profile" && "${PROFILE:-PRIVATE}" == "$wanted" ]]; then
-      out+=("$IP")
-    elif [[ "$mode" == "management" && "${MANAGEMENT:-0}" == "1" ]]; then
-      out+=("$IP")
+    load_peer_registry "$f"
+    if [[ "$mode" == "profile" && "${PEER_PROFILE:-PRIVATE}" == "$wanted" ]]; then
+      out+=("$PEER_IP")
+    elif [[ "$mode" == "management" && "${PEER_MANAGEMENT:-0}" == "1" ]]; then
+      out+=("$PEER_IP")
     fi
   done
   local IFS=", "
@@ -82,6 +80,23 @@ LOCKDOWN_ELEMENTS="$(collect_ips LOCKDOWN)"
 DOH_IP_ELEMENTS="$(collect_doh_ips)"
 export WAN_IF VPN_IF AWG_PORT VPN_NET MGMT_NET PRIVATE_DNS_PORT STRICT_DNS_PORT UNBOUND_PORT
 export COMPAT_ELEMENTS STRICT_ELEMENTS MGMT_ELEMENTS LOCKDOWN_ELEMENTS DOH_IP_ELEMENTS
+
+case "${NOVA_TRAFFIC_GATE:-closed}" in
+  open)
+    TRAFFIC_GATE_DROP=""
+    ;;
+  closed)
+    # Literal nft quotes are template payload, not shell syntax.
+    # shellcheck disable=SC2089
+    printf -v TRAFFIC_GATE_DROP       '    iifname "%s" ip saddr { %s, %s } drop comment "NOVA_TRAFFIC_GATE_CLOSED"'       "$NOVA_VPN_IF" "$NOVA_VPN_NET" "$NOVA_MGMT_NET"
+    ;;
+  *)
+    die "invalid NOVA_TRAFFIC_GATE=${NOVA_TRAFFIC_GATE:-unset}"
+    ;;
+esac
+# The Python renderer consumes these literal nft tokens from the environment.
+# shellcheck disable=SC2090
+export TRAFFIC_GATE_DROP
 
 if [[ -n "${NOVA_BOOTSTRAP_SSH_CIDR:-}" ]]; then
   if [[ "$NOVA_BOOTSTRAP_SSH_CIDR" == *:* ]]; then

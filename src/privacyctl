@@ -23,6 +23,8 @@ Commands:
   profile set NAME PROFILE
   anonymity guidance
   firewall check
+  gate status|close
+  activate
   dns status
   awg mode balanced|max
   lockdown
@@ -33,7 +35,8 @@ Commands:
   acceptance preflight|server|report
   failure-injection dry-run|execute
   features probe
-  update check
+  update check|system|release
+  cleanup run
   version
 EOF
 }
@@ -46,15 +49,39 @@ service_state() {
   fi
 }
 
+valid_cidr() {
+  python3 - "$1" <<'PY'
+import ipaddress,sys
+try:
+    ipaddress.ip_network(sys.argv[1], strict=False)
+except ValueError:
+    raise SystemExit(1)
+PY
+}
+
 cmd_status() {
   printf 'NOVA Privacy Core %s\n' "$(cat "$ROOT/VERSION" 2>/dev/null || echo unknown)"
+  printf 'OS baseline: %s\n' "${NOVA_OS_BASELINE:-unknown}"
+  printf 'Platform: %s\n' "${NOVA_PLATFORM:-unknown}"
+  printf 'Kernel: %s\n' "$(uname -r)"
+  printf 'Kernel track: %s\n' "${NOVA_KERNEL_TRACK:-unknown}"
   printf 'AWG: %s\n' "$(service_state nova-awg.service)"
   printf 'Firewall: %s\n' "$(service_state nova-firewall.service)"
   printf 'Unbound: %s\n' "$(service_state unbound.service)"
   printf 'AdGuard private: %s\n' "$(service_state nova-adguard-private.service)"
   printf 'AdGuard strict: %s\n' "$(service_state nova-adguard-strict.service)"
   printf 'DoH guard timer: %s\n' "$(service_state nova-doh-ips.timer)"
+  printf 'Release-update timer: %s\n' "$(service_state nova-release-update.timer)"
+  printf 'Maintenance timer: %s\n' "$(service_state nova-maintenance.timer)"
+  printf 'Cleanup timer: %s\n' "$(service_state nova-cleanup.timer)"
   printf 'AWG mode: %s\n' "${NOVA_AWG_MODE:-unknown}"
+  printf 'AWG backend: %s\n' "${NOVA_AWG_BACKEND:-unknown}"
+  printf 'AWG userspace version: %s\n' "${NOVA_AWG_GO_INSTALLED_VERSION:-unknown}"
+  printf 'Traffic gate: %s\n' "${NOVA_TRAFFIC_GATE:-closed}"
+  printf 'Repository: %s\n' "${NOVA_REPOSITORY:-unknown}"
+  printf 'AdGuard target: %s\n' "${NOVA_ADGUARD_VERSION:-unknown}"
+  printf 'ZRAM policy: %s\n' "${NOVA_ZRAM_POLICY:-unknown}"
+  printf 'Encrypted swap: %s MiB\n' "${NOVA_SWAP_MIB:-0}"
   printf 'Public endpoint: %s\n' "${NOVA_PUBLIC_ENDPOINT:-unset}"
 
   if command -v awg >/dev/null 2>&1 &&
@@ -65,6 +92,19 @@ cmd_status() {
 
 cmd_health() {
   local failed=0 service doh_file doh_count sample_doh
+
+  if ! is_ubuntu_2604; then
+    printf 'FAIL production OS baseline is not Ubuntu 26.04 LTS\n'
+    failed=1
+  fi
+
+  case "${NOVA_TRAFFIC_GATE:-closed}" in
+    open|closed) ;;
+    *)
+      printf 'FAIL invalid traffic-gate state: %s\n' "${NOVA_TRAFFIC_GATE:-unset}"
+      failed=1
+      ;;
+  esac
 
   for service in     nova-awg.service     nova-firewall.service     unbound.service     nova-adguard-private.service     nova-adguard-strict.service; do
     if ! systemctl is-active --quiet "$service"; then
@@ -83,16 +123,51 @@ cmd_health() {
     failed=1
   fi
 
+  if [[ "${NOVA_AWG_BACKEND:-}" != "userspace" ]]; then
+    printf 'FAIL unsupported AWG backend: %s\n' "${NOVA_AWG_BACKEND:-unset}"
+    failed=1
+  elif [[ ! -x /usr/local/sbin/amneziawg-go ]]; then
+    printf 'FAIL AmneziaWG userspace daemon missing\n'
+    failed=1
+  else
+    actual_awg_hash="$(sha256sum /usr/local/sbin/amneziawg-go | awk '{print $1}')"
+    actual_awg_version="$(/usr/local/sbin/amneziawg-go --version 2>/dev/null | awk 'NR==1{print $2}')"
+    if [[ -z "${NOVA_AWG_GO_SHA256:-}" || "$actual_awg_hash" != "$NOVA_AWG_GO_SHA256" ]]; then
+      printf 'FAIL AmneziaWG userspace SHA-256 mismatch\n'
+      failed=1
+    fi
+    if [[ -z "${NOVA_AWG_GO_INSTALLED_VERSION:-}" ||
+          "$actual_awg_version" != "$NOVA_AWG_GO_INSTALLED_VERSION" ]]; then
+      printf 'FAIL AmneziaWG userspace version mismatch\n'
+      failed=1
+    fi
+  fi
+
   if ss -H -lntup 2>/dev/null |
       awk '{print $5}' |
-      grep -E ':(53|3000|3001|5300|5301|5335)$' |
+      grep -E ':(53|853|3000|3001|5300|5301|5335)$' |
       grep -Eq '^(0\.0\.0\.0|\[::\]|\*):'; then
-    printf 'FAIL sensitive service listening on a wildcard public address\n'
+    printf 'FAIL sensitive service listening on wildcard address\n'
     failed=1
   fi
 
-  if ! systemctl is-active --quiet nova-doh-ips.timer; then
-    printf 'FAIL encrypted-DNS IP refresh timer inactive\n'
+  for service in     nova-doh-ips.timer     nova-release-update.timer     nova-maintenance.timer     nova-cleanup.timer; do
+    if ! systemctl is-active --quiet "$service"; then
+      printf 'FAIL automation timer %s inactive\n' "$service"
+      failed=1
+    fi
+  done
+
+  if [[ "${NOVA_ZRAM_POLICY:-auto}" == "auto" ]] &&
+     ! swapon --noheadings --show=NAME 2>/dev/null | grep -Fxq '/dev/zram0'; then
+    printf 'FAIL zram swap is not active\n'
+    failed=1
+  fi
+
+  if [[ "${NOVA_SWAP_MIB:-0}" =~ ^[0-9]+$ ]] &&
+     (( NOVA_SWAP_MIB > 0 )) &&
+     ! swapon --noheadings --show=NAME 2>/dev/null | grep -Fxq '/dev/mapper/nova-swap'; then
+    printf 'FAIL ephemeral encrypted disk swap is not active\n'
     failed=1
   fi
 
@@ -125,10 +200,8 @@ cmd_peers() {
   printf '%-20s %-15s %-12s %-5s\n' NAME IP PROFILE MGMT
   shopt -s nullglob
   for f in "$NOVA_ETC"/peers.d/*.env; do
-    unset NAME IP PROFILE MANAGEMENT
-    # shellcheck disable=SC1090
-    source "$f"
-    printf '%-20s %-15s %-12s %-5s\n' "$NAME" "$IP" "$PROFILE" "${MANAGEMENT:-0}"
+    load_peer_registry "$f"
+    printf '%-20s %-15s %-12s %-5s\n' "$PEER_NAME" "$PEER_IP" "$PEER_PROFILE" "${PEER_MANAGEMENT:-0}"
   done
 }
 
@@ -143,17 +216,65 @@ recent_management_handshake() {
 
   shopt -s nullglob
   for f in "$NOVA_ETC"/peers.d/*.env; do
-    unset MANAGEMENT PUBLIC_KEY
-    # shellcheck disable=SC1090
-    source "$f"
-    if [[ "${MANAGEMENT:-0}" == "1" ]]; then
-      ts="${hs[$PUBLIC_KEY]:-0}"
+    load_peer_registry "$f"
+    if [[ "${PEER_MANAGEMENT:-0}" == "1" ]]; then
+      ts="${hs[$PEER_PUBLIC_KEY]:-0}"
       if [[ "$ts" =~ ^[0-9]+$ ]] && (( ts > 0 && now - ts <= 300 )); then
         return 0
       fi
     fi
   done
   return 1
+}
+
+cmd_activate() {
+  acquire_nova_lock
+  recent_management_handshake ||
+    die "no management peer has a handshake in the last 5 minutes"
+  [[ ! -e /var/run/reboot-required ]] ||
+    die "a reboot is required; refusing to open protected forwarding on the old kernel"
+
+  cmd_health || die "host health failed; traffic remains CLOSED"
+  "$ROOT/scripts/verify-leaks.sh" ||
+    die "privacy/leak checks failed; traffic remains CLOSED"
+
+  local old_bootstrap="${NOVA_BOOTSTRAP_SSH_CIDR:-}"
+
+  rollback_activation() {
+    warn "activation failed; restoring bootstrap SSH and forcing traffic gate CLOSED"
+    write_runtime_kv NOVA_TRAFFIC_GATE closed
+    write_runtime_kv NOVA_BOOTSTRAP_SSH_CIDR "$old_bootstrap"
+    NOVA_TRAFFIC_GATE=closed NOVA_BOOTSTRAP_SSH_CIDR="$old_bootstrap"       "$ROOT/scripts/render-firewall.sh" >/dev/null 2>&1 || true
+  }
+  trap rollback_activation ERR
+
+  write_runtime_kv NOVA_TRAFFIC_GATE open
+  write_runtime_kv NOVA_BOOTSTRAP_SSH_CIDR ""
+  NOVA_TRAFFIC_GATE=open NOVA_BOOTSTRAP_SSH_CIDR=""     "$ROOT/scripts/render-firewall.sh"
+
+  # Reload runtime values before the final acceptance suite.
+  load_runtime
+  "$ROOT/scripts/live-acceptance.sh" server
+
+  trap - ERR
+  log "NOVA activated: public bootstrap SSH removed and protected forwarding OPEN"
+}
+
+cmd_gate() {
+  case "${1:-}" in
+    status)
+      printf '%s\n' "${NOVA_TRAFFIC_GATE:-closed}"
+      ;;
+    close)
+      acquire_nova_lock
+      write_runtime_kv NOVA_TRAFFIC_GATE closed
+      NOVA_TRAFFIC_GATE=closed "$ROOT/scripts/render-firewall.sh"
+      log "protected forwarding CLOSED"
+      ;;
+    *)
+      die "usage: privacyctl gate status|close"
+      ;;
+  esac
 }
 
 case "${1:-}" in
@@ -211,6 +332,12 @@ EOF
     nft -c -f "$NOVA_ETC/nftables/nova.nft"
     nft list table inet nova
     ;;
+  gate)
+    cmd_gate "${2:-}"
+    ;;
+  activate)
+    cmd_activate
+    ;;
   dns)
     [[ "${2:-}" == "status" ]] || { usage; exit 2; }
     systemctl --no-pager --full status       unbound.service nova-adguard-private.service nova-adguard-strict.service
@@ -231,15 +358,16 @@ EOF
     recent_management_handshake ||
       die "no management peer has a handshake in the last 5 minutes"
     write_runtime_kv NOVA_BOOTSTRAP_SSH_CIDR ""
-    "$ROOT/scripts/render-firewall.sh"
+    NOVA_BOOTSTRAP_SSH_CIDR="" "$ROOT/scripts/render-firewall.sh"
     log "public bootstrap SSH rule removed"
     ;;
   bootstrap-ssh)
     acquire_nova_lock
     cidr="${2:-}"
     [[ -n "$cidr" ]] || die "CIDR required"
+    valid_cidr "$cidr" || die "invalid CIDR: $cidr"
     write_runtime_kv NOVA_BOOTSTRAP_SSH_CIDR "$cidr"
-    exec "$ROOT/scripts/render-firewall.sh"
+    NOVA_BOOTSTRAP_SSH_CIDR="$cidr" exec "$ROOT/scripts/render-firewall.sh"
     ;;
   leaks)
     [[ "${2:-}" == "test" ]] || { usage; exit 2; }
@@ -269,8 +397,16 @@ EOF
     exec "$ROOT/scripts/probe-features.sh"
     ;;
   update)
-    [[ "${2:-}" == "check" ]] || { usage; exit 2; }
-    exec "$ROOT/scripts/update-components.sh" --check
+    case "${2:-}" in
+      check) exec "$ROOT/scripts/update-components.sh" --check ;;
+      system) exec "$ROOT/scripts/system-maintenance.sh" ;;
+      release) exec "$ROOT/scripts/release-update.sh" ;;
+      *) usage; exit 2 ;;
+    esac
+    ;;
+  cleanup)
+    [[ "${2:-}" == "run" ]] || { usage; exit 2; }
+    exec "$ROOT/scripts/cleanup.sh"
     ;;
   version)
     cat "$ROOT/VERSION"

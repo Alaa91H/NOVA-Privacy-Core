@@ -48,12 +48,12 @@ printf '%s\n' "$psk" >"$secret_dir/psk"
 chmod 0600 "$secret_dir/psk"
 
 cat >"$peer" <<EOF
-NAME=$(printf '%q' "$name")
-IP=$(printf '%q' "$ip")
-PROFILE=$(printf '%q' "$profile")
+NAME=$name
+IP=$ip
+PROFILE=$profile
 MANAGEMENT=$management
-PUBLIC_KEY=$(printf '%q' "$client_public")
-PSK_FILE=$(printf '%q' "$secret_dir/psk")
+PUBLIC_KEY=$client_public
+PSK_FILE=$secret_dir/psk
 EOF
 chmod 0600 "$peer"
 

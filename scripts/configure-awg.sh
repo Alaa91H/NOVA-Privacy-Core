@@ -230,8 +230,26 @@ python3 "$ROOT/scripts/render-template.py"   "$ROOT/config/systemd/nova-awg.serv
 chmod 0644 /etc/systemd/system/nova-awg.service
 systemctl daemon-reload
 
-if systemctl is-active --quiet nova-awg.service; then
-  systemctl restart nova-awg.service
+if systemctl is-active --quiet nova-awg.service &&
+   ip link show "$NOVA_VPN_IF" >/dev/null 2>&1; then
+  # Never bounce the management tunnel during an in-place update.  The
+  # interface addresses are owned by awg-quick and must already match the
+  # persisted design; changing them is a console/OOB maintenance operation.
+  for required_addr in "$NOVA_VPN_ADDR" "$NOVA_MGMT_ADDR"; do
+    ip -o addr show dev "$NOVA_VPN_IF" |
+      awk '{print $4}' |
+      grep -Fxq "$required_addr" ||
+      die "active AWG address differs from requested design ($required_addr); use Oracle Console/OOB for network-address changes"
+  done
+
+  live_candidate="$(mktemp "$NOVA_ETC/.awg-live.XXXXXX")"
+  trap 'rm -f "$peers_tmp" "${live_candidate:-}"' EXIT
+  awg-quick strip "$conf" >"$live_candidate"
+  chmod 0600 "$live_candidate"
+  awg syncconf "$NOVA_VPN_IF" "$live_candidate" ||
+    die "live AWG sync failed; active interface was not intentionally restarted"
+  rm -f "$live_candidate"
+  log "AmneziaWG updated in place without dropping the active tunnel"
 else
   systemctl enable --now nova-awg.service
 fi

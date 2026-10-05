@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily NOVA system/kernel/application maintenance
+
+[Timer]
+OnCalendar=*-*-* 04:15:00
+RandomizedDelaySec=45min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

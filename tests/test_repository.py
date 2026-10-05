@@ -25,6 +25,7 @@ def test_firewall():
     assert 'udp sport 67 udp dport 68 accept' in text
     assert "set doh4" in text
     assert "ip saddr @strict4 ip daddr @doh4 drop" in text
+    assert "@@TRAFFIC_GATE_DROP@@" in text
 
 def test_lockdown_precedes_conntrack_accept():
     text = read("config/nftables/nova.nft.in")
@@ -35,6 +36,25 @@ def test_lockdown_precedes_conntrack_accept():
         "LOCKDOWN must override already-established forwarding flows"
     )
 
+
+def test_deployment_gate_precedes_conntrack_accept():
+    text = read("config/nftables/nova.nft.in")
+    m = re.search(r"chain forward \{(.*?)\n  \}", text, re.S)
+    assert m, "forward chain not found"
+    forward = m.group(1)
+    assert forward.index("@@TRAFFIC_GATE_DROP@@") < forward.index("ct state established,related accept")
+
+
+
+def test_dns_bypass_blocks_precede_conntrack_accept():
+    text = read("config/nftables/nova.nft.in")
+    m = re.search(r"chain forward \{(.*?)\n  \}", text, re.S)
+    assert m, "forward chain not found"
+    forward = m.group(1)
+    established = forward.index("ct state established,related accept")
+    assert forward.index("ip saddr @strict4 ip daddr @doh4 drop") < established
+    assert forward.index("tcp dport 853 drop") < established
+    assert forward.index("udp dport 853 drop") < established
 
 def test_early_firewall_boot_order():
     unit = read("config/systemd/nova-firewall.service")
@@ -223,11 +243,19 @@ def test_host_hardening_baseline():
 def test_awg31_is_capability_probed():
     installer = read("scripts/install-awg.sh")
     defaults = read("config/defaults.env")
-    assert "probe_awg31()" in installer
+    unit = read("config/systemd/nova-awg.service.in")
+
+    assert "probe_awg31_userspace()" in installer
     assert 'awg setconf "$dev" "$cfg"' in installer
-    assert "amneziawg-dkms" in installer
-    assert "failed 3.1 capability probe" in installer
+    assert "github.com/amnezia-vpn/amneziawg-go/v3" in installer
+    assert "proxy.golang.org" in installer
+    assert "GOSUMDB=\"sum.golang.org\"" in installer
+    assert "NOVA_AWG_BACKEND=userspace" in installer
+    assert "amneziawg-dkms" in installer and "Pin-Priority: -1" in installer
+    assert "NOVA_AWG_BACKEND=${NOVA_AWG_BACKEND:-userspace}" in defaults
     assert "NOVA_AWG_EXPERIMENTAL_RANDOM_TRAILERS=${NOVA_AWG_EXPERIMENTAL_RANDOM_TRAILERS:-off}" in defaults
+    assert "WG_QUICK_USERSPACE_IMPLEMENTATION=/usr/local/sbin/amneziawg-go" in unit
+    assert "modprobe amneziawg" not in unit
 
 
 def test_firewall_service_starts_immediately():
@@ -283,6 +311,286 @@ def test_client_acceptance_assets():
     assert "Block connections without VPN" in android
     assert "systemctl stop nova-awg.service" in android
 
+
+def test_deployment_baseline_gates():
+    bootstrap = read("scripts/bootstrap.sh")
+    harden = read("scripts/harden.sh")
+    ssh = read("config/ssh/90-nova-privacy.conf")
+    installer = read("scripts/install.sh")
+    live = read("scripts/live-acceptance.sh")
+    common = read("scripts/lib/common.sh")
+
+    assert 'Ubuntu Server/Minimal 26.04 LTS' in bootstrap
+    assert '1.24.2-1ubuntu2.1' in bootstrap
+    assert 'linux-oracle' in bootstrap
+    assert 'systemd-zram-generator' in bootstrap
+    assert 'active SSH session uses IPv6' in bootstrap
+    assert 'is_ubuntu_2604' in common
+    assert 'is_oci_host' in common
+    assert 'rsync is required to update a non-empty NOVA installation safely' in installer
+    assert 'rsync -a --delete' in installer
+    assert 'PermitRootLogin no' in ssh
+    assert 'AuthenticationMethods publickey' in ssh
+    assert 'find_keyed_sudo_admin' in harden
+    assert 'origin=Ubuntu' in harden
+    assert 'mlkem768x25519-sha256' in harden
+    assert 'Ubuntu 26.04 LTS baseline' in live
+    assert 'expected Canonical kernel track is installed/booted' in live
+    assert 'public bootstrap SSH rule removed' in live
+
+def test_ci_and_release_are_target_and_provenance_gated():
+    ci = read(".github/workflows/ci.yml")
+    release = read(".github/workflows/release.yml")
+    digest = "sha256:da6fc2be547864451aa253836dd926da33623312df4a9a243e35dc877c378a78"
+
+    assert "ubuntu:26.04@" + digest in ci
+    assert "ubuntu:26.04@" + digest in release
+    assert "bash tests/run.sh" in release
+    assert "tests/test-render-firewall.sh" in release
+    assert 'release tag must point exactly at current main' in release
+    assert 'CHANGELOG.md has no released section' in release
+    assert "needs: validate" in release
+    assert "attest-build-provenance@" in release
+    assert "gh attestation download" in release
+    assert "attestation.jsonl" in release
+
+
+def test_third_party_repo_is_constrained():
+    installer = read("scripts/install-awg.sh")
+    assert "Pin: release o=LP-PPA-amnezia" in installer
+    assert "Pin-Priority: 1" in installer
+    assert "Package: amneziawg-tools" in installer
+    assert "Package: amneziawg amneziawg-dkms" in installer
+    assert "Pin-Priority: -1" in installer
+    assert "apt-get -o DPkg::Lock::Timeout=600 install -y --no-install-recommends amneziawg-tools" in installer
+    assert "NOVA_AWG_TOOLS_PACKAGE_VERSION" in installer
+    assert "NOVA_AWG_GO_INSTALLED_VERSION" in installer
+    assert "NOVA_AWG_GO_SHA256" in installer
+
+
+def test_live_acceptance_is_single_canonical_script():
+    live = read("scripts/live-acceptance.sh")
+    assert live.count("#!/usr/bin/env bash") == 1
+    assert live.count("preflight() {") == 1
+    assert live.count("server_checks() {") == 1
+    assert live.count("no_public_sensitive_ports() {") == 1
+
+def test_awg_updates_do_not_drop_management_tunnel():
+    cfg = read("scripts/configure-awg.sh")
+    active_block = cfg[cfg.index('if systemctl is-active --quiet nova-awg.service'):]
+    assert 'awg syncconf "$NOVA_VPN_IF" "$live_candidate"' in active_block
+    assert 'systemctl restart nova-awg.service' not in active_block
+    assert "active AWG address differs from requested design" in active_block
+    assert "updated in place without dropping the active tunnel" in active_block
+
+
+def test_dynamic_memory_is_privacy_safe():
+    cfg = read("scripts/configure-memory.sh")
+    enc = read("scripts/encrypted-swap.sh")
+    unit = read("config/systemd/nova-encrypted-swap.service")
+    sysctl = read("config/sysctl/99-nova-privacy.conf")
+
+    assert "zram-size = min(ram / 2, 4096)" in cfg
+    assert "swap-priority = 200" in cfg
+    assert "NOVA_SWAP_MAX_MIB" in cfg
+    assert "NOVA_SWAP_MIN_FREE_MIB" in cfg
+    assert "--key-file /dev/urandom" in enc
+    assert "aes-xts-plain64" in enc
+    assert "swapon -p 10" in enc
+    assert "ExecStart=/opt/nova-privacy/scripts/encrypted-swap.sh start" in unit
+    assert "vm.swappiness = 100" in sysctl
+    assert "vm.page-cluster = 0" in sysctl
+
+def test_periodic_maintenance_is_fail_closed():
+    maint = read("scripts/system-maintenance.sh")
+    post = read("scripts/postboot-verify.sh")
+    auto = read("scripts/install-automation.sh")
+    defaults = read("config/defaults.env")
+
+    assert "full-upgrade" in maint
+    assert "DPkg::Lock::Timeout=600" in maint
+    assert "NOVA_TRAFFIC_GATE closed" in maint
+    assert "reopen-after-boot" in maint
+    assert "install-github-cli.sh" in maint
+    assert "systemctl reboot" in maint
+    assert "reopen-verified.sh" in maint
+    assert "reopen-verified.sh" in post
+    for timer in ("nova-release-update.timer", "nova-maintenance.timer", "nova-cleanup.timer"):
+        assert timer in auto
+    assert "NOVA_AUTO_SYSTEM_UPDATE" in defaults
+    assert "NOVA_AUTO_REBOOT" in defaults
+
+def test_release_self_update_requires_checksum_and_provenance():
+    updater = read("scripts/release-update.sh")
+    bootstrap = read("install.sh")
+    defaults = read("config/defaults.env")
+
+    for text in (updater, bootstrap):
+        assert "SHA256SUMS" in text
+        assert "sha256sum -c" in text
+        assert "attestation.jsonl" in text
+        assert "gh attestation verify" in text
+        assert "--bundle" in text
+        assert "--signer-workflow" in text
+        assert "--source-ref" in text
+    assert "Alaa91H/NOVA-Privacy-Core" in defaults
+    assert "NOVA_AUTO_RELEASE_UPDATE" in defaults
+
+def test_activation_gate_has_no_unverified_open_command():
+    ctl = read("src/privacyctl")
+    renderer = read("scripts/render-firewall.sh")
+    firewall = read("config/nftables/nova.nft.in")
+
+    assert "gate status|close" in ctl
+    assert "gate status|open" not in ctl
+    assert "recent_management_handshake" in ctl
+    assert "/var/run/reboot-required" in ctl
+    assert "verify-leaks.sh" in ctl
+    assert "rollback_activation" in ctl
+    assert "NOVA_TRAFFIC_GATE open" in ctl
+    assert "TRAFFIC_GATE_DROP" in renderer
+    assert "@@TRAFFIC_GATE_DROP@@" in firewall
+
+def test_bootstrap_is_release_first_and_not_pipe_to_shell():
+    bootstrap = read("install.sh")
+    assert 'NOVA_SOURCE:-release' in bootstrap
+    assert "No stable NOVA release exists yet" in bootstrap
+    assert "NOVA_SOURCE=main" in bootstrap
+    assert "exec bash" in bootstrap
+    assert "curl" in bootstrap
+    assert "| bash" not in bootstrap
+    assert "| sh" not in bootstrap
+
+def test_privacyctl_is_single_canonical_control_plane():
+    ctl = read("src/privacyctl")
+    assert ctl.count("#!/usr/bin/env bash") == 1
+    assert sum(1 for line in ctl.splitlines() if line == 'case "${1:-}" in') == 1
+    assert ctl.count("cmd_health() {") == 1
+    assert ctl.count("cmd_activate() {") == 1
+    assert "valid_cidr" in ctl
+
+
+def test_ubuntu_awg_path_avoids_known_kernel_module_risk():
+    installer = read("scripts/install-awg.sh")
+    service = read("config/systemd/nova-awg.service.in")
+    defaults = read("config/defaults.env")
+
+    assert "production supports only NOVA_AWG_BACKEND=userspace" in installer
+    assert "amneziawg-tools" in installer
+    assert "amneziawg-dkms" in installer and "Pin-Priority: -1" in installer
+    assert "amneziawg-go" in service
+    assert "ExecStartPre=/sbin/modprobe amneziawg" not in service
+    assert "NOVA_AWG_GO_VERSION=${NOVA_AWG_GO_VERSION:-auto}" in defaults
+
+
+def test_verified_reopen_is_centralized_and_rollback_safe():
+    helper = read("scripts/reopen-verified.sh")
+    maint = read("scripts/system-maintenance.sh")
+    post = read("scripts/postboot-verify.sh")
+    release = read("scripts/release-update.sh")
+
+    assert 'live-acceptance.sh" preflight' in helper
+    assert "verify-leaks.sh" in helper
+    assert "NOVA_BOOTSTRAP_SSH_CIDR" in helper
+    assert "/var/run/reboot-required" in helper
+    assert "NOVA_TRAFFIC_GATE open" in helper
+    assert "NOVA_TRAFFIC_GATE closed" in helper
+    assert 'live-acceptance.sh" server' in helper
+    assert "rollback()" in helper
+    assert 'reopen-verified.sh' in maint
+    assert 'reopen-verified.sh' in post
+    assert 'reopen-verified.sh' in release
+
+
+def test_awg_userspace_integrity_is_a_gate():
+    ctl = read("src/privacyctl")
+    live = read("scripts/live-acceptance.sh")
+    installer = read("scripts/install-awg.sh")
+
+    assert "NOVA_AWG_GO_SHA256" in ctl
+    assert "NOVA_AWG_GO_INSTALLED_VERSION" in ctl
+    assert "sha256sum /usr/local/sbin/amneziawg-go" in ctl
+    assert "AmneziaWG userspace SHA-256 mismatch" in ctl
+    assert "awg_userspace_integrity" in live
+    assert "AWG userspace version/hash integrity" in live
+    assert "write_runtime_kv NOVA_AWG_GO_SHA256" in installer
+
+
+def test_peer_registry_is_data_only():
+    common = read("scripts/lib/common.sh")
+    consumers = "\n".join(read(p) for p in (
+        "scripts/render-firewall.sh",
+        "scripts/rebuild-awg-peers.sh",
+        "scripts/set-profile.sh",
+        "scripts/rotate-peer.sh",
+        "src/privacyctl",
+    ))
+    creator = read("scripts/create-peer.sh")
+
+    assert "load_peer_registry()" in common
+    assert "peer registry must be root-owned" in common
+    assert "unknown peer registry key" in common
+    assert "peer IP does not belong" in common
+    assert "unexpected peer PSK path" in common
+    assert 'source "$peer"' not in consumers
+    assert 'source "$f"' not in consumers
+    assert "load_peer_registry" in consumers
+    assert "NAME=$name" in creator
+    assert "PUBLIC_KEY=$client_public" in creator
+
+
+def test_peer_registry_preserves_base64_padding():
+    common = read("scripts/lib/common.sh")
+    assert 'while IFS= read -r line' in common
+    assert 'key="${line%%=*}"' in common
+    assert 'value="${line#*=}"' in common
+    assert "while IFS='=' read -r key value" not in common
+
+
+def test_restore_is_always_fail_closed_and_host_revalidated():
+    restore = read("scripts/restore.sh")
+    assert "Recovery is always fail-closed" in restore
+    assert "NOVA_TRAFFIC_GATE closed" in restore
+    assert "NOVA_BOOTSTRAP_SSH_CIDR" in restore
+    assert 'recovery_bootstrap_cidr="${NOVA_BOOTSTRAP_SSH_CIDR:-}"' in restore
+    assert 'write_runtime_kv NOVA_BOOTSTRAP_SSH_CIDR "$recovery_bootstrap_cidr"' in restore
+    assert "install-awg.sh" in restore
+    assert "configure-memory.sh" in restore
+    assert "install-automation.sh" in restore
+    assert "live-acceptance.sh" in restore
+    assert "privacyctl activate" in restore
+
+def test_github_cli_attestation_path_is_official_and_pinned():
+    helper = read("scripts/install-github-cli.sh")
+    bootstrap = read("install.sh")
+    defaults = read("config/defaults.env")
+    smoke = read("tests/ubuntu26-smoke.sh")
+
+    expected_hash = "6084d5d7bd8e288441e0e94fc6275570895da18e6751f70f057485dc2d1a811b"
+    expected_fpr1 = "2C6106201985B60E6C7AC87323F3D4EA75716059"
+    expected_fpr2 = "7F38BBB59D064DBCB3D84D725612B36462313325"
+
+    for text in (bootstrap, defaults):
+        assert expected_hash in text
+        assert expected_fpr1 in text
+        assert expected_fpr2 in text
+
+    assert "NOVA_GITHUB_CLI_KEYRING_SHA256" in helper
+    assert "NOVA_GITHUB_CLI_KEY_FPRS" in helper
+    assert "https://cli.github.com/packages" in helper
+    assert "Pin: origin cli.github.com" in helper
+    assert "Package: gh" in helper
+    assert "Pin-Priority: 700" in helper
+    assert "gh attestation verify --help" in helper
+    assert "gh_attestation_help=" in helper
+    assert "gh_attestation_help=" in bootstrap
+    assert "gh_attestation_help=" in smoke
+    for text in (helper, bootstrap, smoke):
+        assert "attestation verify --help 2>/dev/null | grep" not in text
+        assert "attestation verify --help | grep" not in text
+    assert "scripts/install-github-cli.sh" in smoke
+    assert " gh " not in smoke.split("apt-get install", 1)[1].splitlines()[1] if "apt-get install" in smoke else True
+
 def test_version():
     version = read("VERSION").strip()
     assert re.fullmatch(r"\d+\.\d+\.\d+", version), version
@@ -291,6 +599,8 @@ def main():
     tests = [
         test_firewall,
         test_lockdown_precedes_conntrack_accept,
+        test_deployment_gate_precedes_conntrack_accept,
+        test_dns_bypass_blocks_precede_conntrack_accept,
         test_early_firewall_boot_order,
         test_dns_privacy,
         test_adguard_least_privilege_auth,
@@ -314,6 +624,24 @@ def main():
         test_optional_features_fail_closed,
         test_live_acceptance_tooling,
         test_client_acceptance_assets,
+        test_deployment_baseline_gates,
+        test_ci_and_release_are_target_and_provenance_gated,
+        test_third_party_repo_is_constrained,
+        test_live_acceptance_is_single_canonical_script,
+        test_awg_updates_do_not_drop_management_tunnel,
+        test_dynamic_memory_is_privacy_safe,
+        test_periodic_maintenance_is_fail_closed,
+        test_release_self_update_requires_checksum_and_provenance,
+        test_activation_gate_has_no_unverified_open_command,
+        test_bootstrap_is_release_first_and_not_pipe_to_shell,
+        test_privacyctl_is_single_canonical_control_plane,
+        test_ubuntu_awg_path_avoids_known_kernel_module_risk,
+        test_verified_reopen_is_centralized_and_rollback_safe,
+        test_awg_userspace_integrity_is_a_gate,
+        test_peer_registry_is_data_only,
+        test_peer_registry_preserves_base64_padding,
+        test_restore_is_always_fail_closed_and_host_revalidated,
+        test_github_cli_attestation_path_is_official_and_pinned,
         test_version,
     ]
     for test in tests:

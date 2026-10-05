@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - "implementation/**"
+      - "audit/**"
   pull_request:
   workflow_dispatch:
 
@@ -18,7 +19,7 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 35
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -26,7 +27,7 @@ jobs:
       - name: Install validation tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends shellcheck nftables python3
+          sudo apt-get install -y --no-install-recommends             shellcheck nftables python3 python3-yaml
 
       - name: Repository test suite
         run: bash tests/run.sh
@@ -34,6 +35,30 @@ jobs:
       - name: Privileged firewall renderer integration test
         run: sudo -E bash tests/test-render-firewall.sh
 
-      - name: Validate no generated secret paths are tracked
+      - name: Validate workflow YAML
         run: |
-          ! git ls-files | grep -E '(^|/)(peer-exports|secrets)/|\.(key|psk|p12|pfx)$'
+          python3 - <<'PY'
+          import pathlib, yaml
+          for path in pathlib.Path(".github/workflows").glob("*.yml"):
+              with path.open("r", encoding="utf-8") as f:
+                  yaml.safe_load(f)
+              print("valid", path)
+          PY
+
+      - name: Target Ubuntu 26.04 LTS and AWG supply-chain smoke
+        run: |
+          docker run --rm --platform linux/amd64             -v "$PWD:/src:ro"             ubuntu:26.04@sha256:da6fc2be547864451aa253836dd926da33623312df4a9a243e35dc877c378a78             bash /src/tests/ubuntu26-smoke.sh
+
+      - name: Validate no generated secret paths are tracked
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          tracked="$(
+            git ls-files |
+              grep -E '(^|/)(peer-exports|secrets)/|\.(key|psk|p12|pfx|agekey)$|\.tar\.age$' ||
+              true
+          )"
+          if [[ -n "$tracked" ]]; then
+            printf 'Tracked secret/generated paths:\n%s\n' "$tracked" >&2
+            exit 1
+          fi

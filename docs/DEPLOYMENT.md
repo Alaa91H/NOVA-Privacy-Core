@@ -1,38 +1,72 @@
 # Deployment
 
-## Target
+## Production target
 
-Baseline: Debian 13 stable/minimal on an Oracle Cloud VM with approximately 1 vCPU and 1 GB RAM.
+- Ubuntu Server/Minimal **26.04 LTS**.
+- Oracle Cloud is the primary target; generic Ubuntu 26.04 is supported by the same design.
+- Approximately 1 vCPU / 1 GB RAM is sufficient for the constrained baseline.
+- Bootstrap administration must use IPv4 because the default policy disables IPv6 fail-closed.
+
+Before installation, ensure a **non-root** administrator has:
+
+- a valid SSH public key in `authorized_keys`;
+- membership in Ubuntu's `sudo` group.
+
+NOVA disables root SSH and password/keyboard-interactive authentication and refuses to apply that policy if no keyed non-root recovery administrator exists.
 
 ## Oracle network prerequisite
 
-The cloud Security List / NSG exists **outside** the guest firewall. NOVA cannot change it through this repository.
+The Oracle Security List / NSG is outside the guest and must be prepared separately:
 
-Before installation:
+1. restrict TCP/22 to the administrator's current public IPv4;
+2. permit the NOVA AmneziaWG UDP port, default 51820;
+3. do not expose DNS/53, DoT/853, AdGuard UI, Unbound, or internal management ports;
+4. keep Oracle Console/serial/OOB recovery available.
 
-1. Restrict TCP/22 to the administrator's current public IP.
-2. Permit the chosen NOVA AmneziaWG UDP port (default 51820) from the client networks that need to connect.
-3. Do not expose DNS/53, DoT/853, AdGuard UI ports, Unbound, or internal management ports to the Internet.
+## Secure bootstrap
 
-Keep an Oracle console/recovery method available before firewall changes.
-
-## Install
-
-From an already key-authenticated SSH session:
+Download the bootstrap first:
 
 ```bash
-git clone https://github.com/Alaa91H/NOVA-Privacy-Core.git
-cd NOVA-Privacy-Core
-sudo NOVA_WAN_IF=ens3 bash ./scripts/install.sh
+curl -fsSLo /tmp/nova-install.sh \
+  https://raw.githubusercontent.com/Alaa91H/NOVA-Privacy-Core/main/install.sh
+sudo bash /tmp/nova-install.sh
 ```
 
-If the WAN interface differs, use the actual default-route interface:
+The bootstrap:
+
+- verifies Ubuntu 26.04;
+- finds the latest stable NOVA release;
+- downloads release archive + checksums + provenance bundle;
+- validates SHA-256;
+- validates GitHub provenance identity, signer workflow, and source tag;
+- extracts only safe archive members;
+- executes the internal installer.
+
+For explicit development testing before a stable release:
 
 ```bash
-ip -4 route show default
+sudo NOVA_SOURCE=main bash /tmp/nova-install.sh
 ```
 
-The installer captures the current SSH source as a temporary host-firewall exception. Do not close the session yet.
+## Installation behavior
+
+The internal installer:
+
+1. serializes itself against all maintenance jobs;
+2. closes an existing production forwarding gate before upgrades;
+3. mirrors privileged code into `/opt/nova-privacy` with stale-file deletion;
+4. full-upgrades Ubuntu before installing the privacy stack;
+5. installs `linux-oracle` automatically on OCI;
+6. configures dynamic zram + ephemeral encrypted disk swap;
+7. hardens SSH, kernel/sysctl, AppArmor, logs and crash dumps;
+8. loads default-drop nftables before enabling forwarding;
+9. installs AmneziaWG userspace + tools and executes a real AWG 3.1 capability probe;
+10. resolves and verifies the latest stable AdGuard Home;
+11. installs Unbound and both AdGuard profiles;
+12. installs STRICT encrypted-DNS bypass protection;
+13. enables fail-closed automatic updates/cleanup;
+14. leaves protected forwarding **CLOSED**.
 
 ## First management peer
 
@@ -40,26 +74,50 @@ The installer captures the current SSH source as a temporary host-firewall excep
 sudo privacyctl peer add laptop PRIVATE --management
 ```
 
-Import the generated root-only client profile from:
+Import:
 
 ```text
 /root/nova-peers/laptop.conf
 ```
 
-Connect, then verify:
+Connect the peer and confirm a recent handshake:
 
 ```bash
 sudo privacyctl status
-sudo privacyctl health
 ```
 
-From the connected management peer, remove temporary public SSH access:
+## Production activation
+
+Before activation:
 
 ```bash
-sudo privacyctl lockdown
+sudo privacyctl health
+sudo privacyctl leaks test
+sudo privacyctl acceptance preflight
 ```
 
-The command refuses to remove the bootstrap SSH rule unless a management peer has completed a recent handshake.
+Then:
+
+```bash
+sudo privacyctl activate
+```
+
+Activation is transactional. It:
+
+- requires a recent management-peer handshake;
+- refuses to run with a pending reboot;
+- runs health and leak checks;
+- removes the public bootstrap SSH rule;
+- opens the forwarding gate;
+- runs the final server acceptance suite;
+- restores bootstrap SSH and forces the gate closed if final acceptance fails.
+
+Confirm:
+
+```bash
+sudo privacyctl gate status
+sudo privacyctl acceptance server
+```
 
 ## Additional peers
 
@@ -69,14 +127,29 @@ sudo privacyctl peer add tablet STRICT
 sudo privacyctl peer add bank COMPAT
 ```
 
-Each peer gets a unique keypair, PSK, and tunnel IP.
-
-## After importing a client profile
-
-Delete exported client private-key material from the server when you no longer need it:
+Delete exported client private-key files after import if they are no longer needed:
 
 ```bash
 sudo rm -f /root/nova-peers/phone.conf /root/nova-peers/phone.qr.png
 ```
 
-The server registry keeps the public key and PSK required for operation, not the client's private key.
+## Automatic maintenance
+
+Installed schedules include:
+
+- NOVA release poll: every 30 minutes with jitter;
+- system/kernel/app maintenance: daily with jitter;
+- cleanup: weekly with jitter;
+- encrypted-DNS IP refresh: existing NOVA timer.
+
+System maintenance uses a strict state machine:
+
+```text
+OPEN -> close gate -> upgrade -> verify -> OPEN
+                         |
+                         +-> reboot required -> remain CLOSED
+                                                |
+                                                +-> post-boot verify -> OPEN
+```
+
+A failure never silently restores direct protected forwarding.
