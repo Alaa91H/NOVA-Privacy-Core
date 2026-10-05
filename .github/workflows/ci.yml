@@ -19,7 +19,7 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -35,11 +35,17 @@ jobs:
       - name: Privileged firewall renderer integration test
         run: sudo -E bash tests/test-render-firewall.sh
 
-      - name: Target Debian 13.7 validation
+      - name: Target Ubuntu 26.04 LTS compatibility validation
         run: |
-          docker run --rm             -v "$PWD:/src:ro"             debian:13.7-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a             bash -Eeuo pipefail -c '
+          docker run --rm --platform linux/amd64             -v "$PWD:/src:ro"             ubuntu:26.04@sha256:da6fc2be547864451aa253836dd926da33623312df4a9a243e35dc877c378a78             bash -Eeuo pipefail -c '
+              export DEBIAN_FRONTEND=noninteractive
               apt-get update
-              apt-get install -y --no-install-recommends                 bash git shellcheck nftables python3 ca-certificates
+              apt-get install -y --no-install-recommends                 bash git shellcheck nftables python3 ca-certificates                 openssh-server unbound systemd-zram-generator cryptsetup-bin                 jq gh iproute2 procps
+              . /etc/os-release
+              [[ "$ID" == "ubuntu" && "$VERSION_ID" == "26.04" ]]
+              dpkg --compare-versions "$(dpkg-query -W -f="${Version}" unbound)" ge "1.24.2-1ubuntu2.1"
+              ssh -Q kex | grep -qx mlkem768x25519-sha256
+              apt-cache show linux-oracle-7.0 >/dev/null
               mkdir -p /work
               cp -a /src/. /work/
               cd /work
