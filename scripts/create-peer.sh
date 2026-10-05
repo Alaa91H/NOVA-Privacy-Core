@@ -9,6 +9,7 @@ source "$ROOT/scripts/lib/common.sh"
 source "$ROOT/scripts/lib/peer.sh"
 require_root
 load_runtime
+acquire_nova_lock
 
 name="${1:-}"
 [[ -n "$name" ]] || die "usage: create-peer.sh NAME [PROFILE] [--management]"
