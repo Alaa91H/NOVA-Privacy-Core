@@ -25,10 +25,10 @@ collect_ips() {
   shopt -s nullglob
   for f in "$PEER_DIR"/*.env; do
     load_peer_registry "$f"
-    if [[ "$mode" == "profile" && "${PROFILE:-PRIVATE}" == "$wanted" ]]; then
-      out+=("$IP")
-    elif [[ "$mode" == "management" && "${MANAGEMENT:-0}" == "1" ]]; then
-      out+=("$IP")
+    if [[ "$mode" == "profile" && "${PEER_PROFILE:-PRIVATE}" == "$wanted" ]]; then
+      out+=("$PEER_IP")
+    elif [[ "$mode" == "management" && "${PEER_MANAGEMENT:-0}" == "1" ]]; then
+      out+=("$PEER_IP")
     fi
   done
   local IFS=", "
