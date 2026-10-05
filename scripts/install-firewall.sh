@@ -31,7 +31,8 @@ install -m 0644 "$ROOT/config/sysctl/99-nova-routing.conf" /etc/sysctl.d/99-nova
 sysctl -p /etc/sysctl.d/99-nova-routing.conf >/dev/null
 
 systemctl daemon-reload
-systemctl enable nova-firewall.service
+systemctl enable --now nova-firewall.service
 systemctl is-enabled --quiet nova-firewall.service || die "firewall persistence failed"
+systemctl is-active --quiet nova-firewall.service || die "firewall service failed to become active"
 
 log "NOVA firewall installed"
