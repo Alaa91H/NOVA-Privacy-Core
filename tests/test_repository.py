@@ -480,6 +480,37 @@ def test_ubuntu_awg_path_avoids_known_kernel_module_risk():
     assert "ExecStartPre=/sbin/modprobe amneziawg" not in service
     assert "NOVA_AWG_GO_VERSION=${NOVA_AWG_GO_VERSION:-auto}" in defaults
 
+
+def test_verified_reopen_is_centralized_and_rollback_safe():
+    helper = read("scripts/reopen-verified.sh")
+    maint = read("scripts/system-maintenance.sh")
+    post = read("scripts/postboot-verify.sh")
+    release = read("scripts/release-update.sh")
+
+    assert "live-acceptance.sh\" preflight" in helper
+    assert "verify-leaks.sh" in helper
+    assert "NOVA_BOOTSTRAP_SSH_CIDR" in helper
+    assert "/var/run/reboot-required" in helper
+    assert "NOVA_TRAFFIC_GATE open" in helper
+    assert "NOVA_TRAFFIC_GATE closed" in helper
+    assert "live-acceptance.sh\" server" in helper
+    assert 'reopen-verified.sh' in maint
+    assert 'reopen-verified.sh' in post
+    assert 'reopen-verified.sh' in release
+
+def test_awg_userspace_integrity_is_a_gate():
+    ctl = read("src/privacyctl")
+    live = read("scripts/live-acceptance.sh")
+    installer = read("scripts/install-awg.sh")
+
+    assert "NOVA_AWG_GO_SHA256" in ctl
+    assert "NOVA_AWG_GO_INSTALLED_VERSION" in ctl
+    assert "sha256sum /usr/local/sbin/amneziawg-go" in ctl
+    assert "AWG userspace SHA-256 mismatch" in ctl
+    assert "awg_userspace_integrity" in live
+    assert "AWG userspace version/hash integrity" in live
+    assert "write_runtime_kv NOVA_AWG_GO_SHA256" in installer
+
 def test_version():
     version = read("VERSION").strip()
     assert re.fullmatch(r"\d+\.\d+\.\d+", version), version
@@ -525,6 +556,8 @@ def main():
         test_bootstrap_is_release_first_and_not_pipe_to_shell,
         test_privacyctl_is_single_canonical_control_plane,
         test_ubuntu_awg_path_avoids_known_kernel_module_risk,
+        test_verified_reopen_is_centralized_and_rollback_safe,
+        test_awg_userspace_integrity_is_a_gate,
         test_version,
     ]
     for test in tests:
