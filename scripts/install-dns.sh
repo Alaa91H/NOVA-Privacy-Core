@@ -9,6 +9,7 @@ require_root
 load_runtime
 
 require_cmd curl
+require_cmd gpg
 require_cmd python3
 require_cmd unbound-checkconf
 id nova-dns >/dev/null 2>&1 || die "nova-dns user missing; run bootstrap first"
@@ -64,12 +65,57 @@ with archive.open("rb") as f:
 actual=h.hexdigest()
 if actual != expected:
     raise SystemExit(f"checksum mismatch: expected {expected}, got {actual}")
-print(actual)
+print(f"sha256 verified: {actual}")
 PY
 
-tar -xzf "$tmp/$filename" -C "$tmp"
+# Extract defensively before signature verification.  Reject paths or archive
+# types that could escape the temporary directory when this script runs as root.
+python3 - "$tmp/$filename" "$tmp/extracted" <<'PY'
+import pathlib,sys,tarfile
+src=pathlib.Path(sys.argv[1])
+dst=pathlib.Path(sys.argv[2])
+dst.mkdir(mode=0o700)
+with tarfile.open(src, "r:gz") as tf:
+    members=tf.getmembers()
+    if not members:
+        raise SystemExit("empty AdGuard archive")
+    for m in members:
+        p=pathlib.PurePosixPath(m.name)
+        if p.is_absolute() or ".." in p.parts:
+            raise SystemExit(f"unsafe archive path: {m.name}")
+        if m.issym() or m.islnk() or m.isdev():
+            raise SystemExit(f"unsafe archive member type: {m.name}")
+    tf.extractall(dst, members=members, filter="data")
+PY
+
+agh_dir="$tmp/extracted/AdGuardHome"
+[[ -x "$agh_dir/AdGuardHome" ]] || die "AdGuard binary missing from archive"
+[[ -s "$agh_dir/AdGuardHome.sig" ]] || die "AdGuard release signature missing from archive"
+
+# AdGuard signs release executables.  Retrieve the public key over HTTPS, pin
+# its full fingerprint, then verify the detached signature embedded in the
+# authenticated release archive.
+gpg_home="$tmp/gnupg"
+key_file="$tmp/adguard-release.asc"
+install -d -m 0700 "$gpg_home"
+curl -fsSL --connect-timeout 10 --max-time 30   "https://keys.openpgp.org/vks/v1/by-fingerprint/${NOVA_ADGUARD_GPG_FPR}"   -o "$key_file"
+
+mapfile -t agh_fprs < <(
+  gpg --homedir "$gpg_home" --batch --show-keys --with-colons "$key_file" 2>/dev/null |
+    awk -F: '$1=="fpr"{print toupper($10)}'
+)
+[[ "${#agh_fprs[@]}" -ge 1 ]] || die "AdGuard signing key contains no fingerprint"
+agh_key_ok=0
+for fpr in "${agh_fprs[@]}"; do
+  [[ "$fpr" == "${NOVA_ADGUARD_GPG_FPR^^}" ]] && agh_key_ok=1
+done
+[[ "$agh_key_ok" -eq 1 ]] || die "AdGuard signing-key fingerprint mismatch"
+
+gpg --homedir "$gpg_home" --batch --import "$key_file" >/dev/null 2>&1
+gpg --homedir "$gpg_home" --batch   --verify "$agh_dir/AdGuardHome.sig" "$agh_dir/AdGuardHome"   || die "AdGuard release signature verification failed"
+
 install -d -m 0755 /usr/local/lib/nova-adguard
-install -m 0755 "$tmp/AdGuardHome/AdGuardHome" /usr/local/lib/nova-adguard/AdGuardHome
+install -m 0755 "$agh_dir/AdGuardHome" /usr/local/lib/nova-adguard/AdGuardHome
 agh=/usr/local/lib/nova-adguard/AdGuardHome
 "$agh" --version
 
@@ -101,4 +147,4 @@ systemctl is-active --quiet unbound.service || die "Unbound failed to start"
 systemctl is-active --quiet nova-adguard-private.service || die "private AdGuard failed to start"
 systemctl is-active --quiet nova-adguard-strict.service || die "strict AdGuard failed to start"
 
-log "DNS stack installed and validated"
+log "DNS stack installed, checksummed, signature-verified and validated"
