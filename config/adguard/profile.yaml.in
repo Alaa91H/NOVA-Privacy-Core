@@ -1,6 +1,16 @@
 http:
   address: 127.0.0.1:@@UI_PORT@@
   session_ttl: 1h
+  pprof:
+    enabled: false
+    port: 6060
+  doh:
+    insecure_enabled: false
+    routes:
+      - GET /dns-query
+      - POST /dns-query
+      - GET /dns-query/{ClientID}
+      - POST /dns-query/{ClientID}
 users: []
 auth_attempts: 5
 block_auth_min: 15
@@ -19,6 +29,11 @@ dns:
   cache_size: 4194304
   cache_optimistic: true
   enable_dnssec: false
+  anonymize_client_ip: true
+  edns_client_subnet:
+    enabled: false
+    use_custom: false
+    custom_ip: ""
 
 querylog:
   enabled: false
@@ -26,11 +41,13 @@ querylog:
   interval: 1h
   size_memory: 0
   ignored: []
+  ignored_enabled: false
 
 statistics:
   enabled: false
   interval: 1h
   ignored: []
+  ignored_enabled: false
 
 filters:
   - enabled: true
@@ -62,6 +79,9 @@ filtering:
   safebrowsing_enabled: false
   protection_enabled: true
 
+tls:
+  enabled: false
+
 clients:
   runtime_sources:
     whois: false
@@ -86,4 +106,4 @@ os:
   user: ""
   rlimit_nofile: 0
 
-schema_version: 32
+schema_version: 34
