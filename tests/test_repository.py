@@ -283,6 +283,39 @@ def test_client_acceptance_assets():
     assert "Block connections without VPN" in android
     assert "systemctl stop nova-awg.service" in android
 
+
+def test_deployment_baseline_gates():
+    bootstrap = read("scripts/bootstrap.sh")
+    harden = read("scripts/harden.sh")
+    ssh = read("config/ssh/90-nova-privacy.conf")
+    installer = read("scripts/install.sh")
+    live = read("scripts/live-acceptance.sh")
+
+    assert 'requires Debian 13' in bootstrap
+    assert '1.26.1-0' in bootstrap
+    assert 'active SSH session uses IPv6' in bootstrap
+    assert 'rsync is required to update a non-empty NOVA installation safely' in installer
+    assert 'rsync -a --delete' in installer
+    assert 'PermitRootLogin no' in ssh
+    assert 'AuthenticationMethods publickey' in ssh
+    assert 'find_keyed_sudo_admin' in harden
+    assert 'mlkem768x25519-sha256' in harden
+    assert 'public bootstrap SSH rule removed' in live
+    assert ":(22|53|853" not in live
+
+def test_ci_and_release_are_target_and_provenance_gated():
+    ci = read(".github/workflows/ci.yml")
+    release = read(".github/workflows/release.yml")
+    digest = "sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a"
+
+    assert "debian:13.7-slim@" + digest in ci
+    assert "debian:13.7-slim@" + digest in release
+    assert "bash tests/run.sh" in release
+    assert "tests/test-render-firewall.sh" in release
+    assert 'release tag must point exactly at current main' in release
+    assert 'CHANGELOG.md has no released section' in release
+    assert "needs: validate" in release
+
 def test_version():
     version = read("VERSION").strip()
     assert re.fullmatch(r"\d+\.\d+\.\d+", version), version
@@ -314,6 +347,8 @@ def main():
         test_optional_features_fail_closed,
         test_live_acceptance_tooling,
         test_client_acceptance_assets,
+        test_deployment_baseline_gates,
+        test_ci_and_release_are_target_and_provenance_gated,
         test_version,
     ]
     for test in tests:
