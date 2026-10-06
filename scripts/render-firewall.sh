@@ -9,6 +9,20 @@ require_root
 load_runtime
 acquire_nova_lock
 require_cmd python3
+
+mode="apply"
+stage_path=""
+case "${1:-}" in
+  "") ;;
+  --check-only) mode="check" ;;
+  --stage)
+    mode="stage"
+    stage_path="${2:-}"
+    [[ -n "$stage_path" ]] || die "--stage requires an output path"
+    ;;
+  *) die "usage: render-firewall.sh [--check-only|--stage PATH]" ;;
+esac
+
 nft_bin="${NOVA_NFT_BIN:-nft}"
 if [[ "$nft_bin" == */* ]]; then
   [[ -x "$nft_bin" ]] || die "NOVA_NFT_BIN is not executable: $nft_bin"
@@ -17,17 +31,17 @@ else
 fi
 
 PEER_DIR="${NOVA_ETC}/peers.d"
-mkdir -p "$PEER_DIR" "${NOVA_ETC}/nftables"
+mkdir -p "$PEER_DIR" "${NOVA_ETC}/nftables" "$NOVA_RUN"
 
 collect_ips() {
-  local wanted="$1" mode="${2:-profile}" f
+  local wanted="$1" mode_name="${2:-profile}" f
   local -a out=()
   shopt -s nullglob
   for f in "$PEER_DIR"/*.env; do
     load_peer_registry "$f"
-    if [[ "$mode" == "profile" && "${PEER_PROFILE:-PRIVATE}" == "$wanted" ]]; then
+    if [[ "$mode_name" == "profile" && "${PEER_PROFILE:-PRIVATE}" == "$wanted" ]]; then
       out+=("$PEER_IP")
-    elif [[ "$mode" == "management" && "${PEER_MANAGEMENT:-0}" == "1" ]]; then
+    elif [[ "$mode_name" == "management" && "${PEER_MANAGEMENT:-0}" == "1" ]]; then
       out+=("$PEER_IP")
     fi
   done
@@ -58,21 +72,20 @@ for n, raw in enumerate(p.read_text(errors="strict").splitlines(), 1):
         raise SystemExit(f"non-IPv4 DoH firewall entry at line {n}: {s!r}")
     out.append(str(ip))
 
-# Avoid loading a suspicious/truncated set in production once the list exists.
 if out and len(set(out)) < 100:
     raise SystemExit(f"refusing suspiciously small DoH firewall set: {len(set(out))}")
 print(", ".join(sorted(set(out), key=lambda x: int(ipaddress.ip_address(x)))), end="")
 PY
 }
 
-WAN_IF="${NOVA_WAN_IF}"
-VPN_IF="${NOVA_VPN_IF}"
-AWG_PORT="${NOVA_AWG_PORT}"
-VPN_NET="${NOVA_VPN_NET}"
-MGMT_NET="${NOVA_MGMT_NET}"
-PRIVATE_DNS_PORT="${NOVA_ADGUARD_PRIVATE_PORT}"
-STRICT_DNS_PORT="${NOVA_ADGUARD_STRICT_PORT}"
-UNBOUND_PORT="${NOVA_UNBOUND_PORT}"
+WAN_IF="$NOVA_WAN_IF"
+VPN_IF="$NOVA_VPN_IF"
+AWG_PORT="$NOVA_AWG_PORT"
+VPN_NET="$NOVA_VPN_NET"
+MGMT_NET="$NOVA_MGMT_NET"
+PRIVATE_DNS_PORT="$NOVA_ADGUARD_PRIVATE_PORT"
+STRICT_DNS_PORT="$NOVA_ADGUARD_STRICT_PORT"
+UNBOUND_PORT="$NOVA_UNBOUND_PORT"
 COMPAT_ELEMENTS="$(collect_ips COMPAT)"
 STRICT_ELEMENTS="$(collect_ips STRICT)"
 MGMT_ELEMENTS="$(collect_ips ignored management)"
@@ -83,22 +96,25 @@ export COMPAT_ELEMENTS STRICT_ELEMENTS MGMT_ELEMENTS LOCKDOWN_ELEMENTS DOH_IP_EL
 
 case "${NOVA_TRAFFIC_GATE:-closed}" in
   open)
+    token="${NOVA_GATE_TOKEN:-}"
+    [[ "$token" =~ ^[a-f0-9]{32}$ ]] ||
+      die "OPEN firewall rendering requires a valid 128-bit NOVA_GATE_TOKEN"
     TRAFFIC_GATE_DROP=""
+    GATE_ACCEPT_COMMENT="comment \"NOVA_GATE_OPEN_${token}\""
     ;;
   closed)
-    # Literal nft quotes are template payload, not shell syntax.
-    # shellcheck disable=SC2089
     printf -v TRAFFIC_GATE_DROP       '    iifname "%s" ip saddr { %s, %s } drop comment "NOVA_TRAFFIC_GATE_CLOSED"'       "$NOVA_VPN_IF" "$NOVA_VPN_NET" "$NOVA_MGMT_NET"
+    GATE_ACCEPT_COMMENT='comment "NOVA_GATE_CLOSED_POLICY"'
     ;;
   *)
     die "invalid NOVA_TRAFFIC_GATE=${NOVA_TRAFFIC_GATE:-unset}"
     ;;
 esac
-# The Python renderer consumes these literal nft tokens from the environment.
-# shellcheck disable=SC2090
-export TRAFFIC_GATE_DROP
+export TRAFFIC_GATE_DROP GATE_ACCEPT_COMMENT
 
 if [[ -n "${NOVA_BOOTSTRAP_SSH_CIDR:-}" ]]; then
+  valid_cidr "$NOVA_BOOTSTRAP_SSH_CIDR" ||
+    die "invalid NOVA_BOOTSTRAP_SSH_CIDR"
   if [[ "$NOVA_BOOTSTRAP_SSH_CIDR" == *:* ]]; then
     BOOTSTRAP_SSH_RULE="    iifname \"${NOVA_WAN_IF}\" ip6 saddr ${NOVA_BOOTSTRAP_SSH_CIDR} tcp dport 22 accept"
   else
@@ -109,14 +125,26 @@ else
 fi
 export BOOTSTRAP_SSH_RULE
 
-candidate="${NOVA_ETC}/nftables/nova.nft.candidate"
-final="${NOVA_ETC}/nftables/nova.nft"
+candidate="$(mktemp "$NOVA_RUN/firewall.XXXXXX.nft")"
+trap 'rm -f "$candidate"' EXIT
 python3 "$ROOT/scripts/render-template.py" "$ROOT/config/nftables/nova.nft.in" "$candidate"
 chmod 0600 "$candidate"
 
-# nft -c parses the complete transaction without changing the active ruleset.
-# The final nft -f call then replaces NOVA's table in one transaction.
 "$nft_bin" -c -f "$candidate"
-mv -f "$candidate" "$final"
-"$nft_bin" -f "$final"
-log "atomic nftables policy loaded"
+
+case "$mode" in
+  check)
+    log "nftables candidate validated without applying"
+    ;;
+  stage)
+    install -m 0600 "$candidate" "$stage_path"
+    log "nftables candidate staged at $stage_path"
+    ;;
+  apply)
+    final="${NOVA_ETC}/nftables/nova.nft"
+    "$nft_bin" -f "$candidate"
+    mv -f "$candidate" "$final"
+    trap - EXIT
+    log "atomic nftables policy loaded"
+    ;;
+esac
