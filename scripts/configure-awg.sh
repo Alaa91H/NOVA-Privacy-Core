@@ -15,6 +15,47 @@ require_cmd python3
 mode="${1:-${NOVA_AWG_MODE:-balanced}}"
 case "$mode" in balanced|max) ;; *) die "AWG mode must be balanced or max" ;; esac
 
+load_awg_params() {
+  local file="$1" key value
+  unset AWG_PARAMS_VERSION AWG_MODE AWG_JC AWG_JMIN AWG_JMAX \
+    AWG_S1 AWG_S2 AWG_S3 AWG_S4 AWG_H1 AWG_H2 AWG_H3 AWG_H4 \
+    AWG_CONTENT_PADDING AWG_RANDOM_TRAILERS AWG_DISABLE_COOKIES \
+    AWG_REKEY_AFTER AWG_REKEY_TIMEOUT AWG_REJECT_AFTER \
+    AWG_KEEPALIVE_TIMEOUT AWG_MAX_HANDSHAKE_ATTEMPTS
+
+  while IFS= read -r -d '' key && IFS= read -r -d '' value; do
+    printf -v "$key" '%s' "$value"
+  done < <(python3 - "$file" <<'PY'
+import os,pathlib,re,stat,sys
+p=pathlib.Path(sys.argv[1]); st=os.lstat(p)
+if stat.S_ISLNK(st.st_mode) or not stat.S_ISREG(st.st_mode):
+    raise SystemExit("unsafe AWG parameter file type")
+if st.st_uid != 0 or st.st_mode & 0o077:
+    raise SystemExit("AWG parameter file must be root-owned and 0600")
+allowed={
+"AWG_PARAMS_VERSION","AWG_MODE","AWG_JC","AWG_JMIN","AWG_JMAX",
+"AWG_S1","AWG_S2","AWG_S3","AWG_S4","AWG_H1","AWG_H2","AWG_H3","AWG_H4",
+"AWG_CONTENT_PADDING","AWG_RANDOM_TRAILERS","AWG_DISABLE_COOKIES",
+"AWG_REKEY_AFTER","AWG_REKEY_TIMEOUT","AWG_REJECT_AFTER",
+"AWG_KEEPALIVE_TIMEOUT","AWG_MAX_HANDSHAKE_ATTEMPTS",
+}
+seen=set()
+for n,raw in enumerate(p.read_text(encoding="utf-8",errors="strict").splitlines(),1):
+    if not raw:
+        continue
+    if "=" not in raw:
+        raise SystemExit(f"invalid AWG parameter record at line {n}")
+    k,v=raw.split("=",1)
+    if k not in allowed or k in seen:
+        raise SystemExit(f"unapproved/duplicate AWG parameter at line {n}: {k}")
+    if not re.fullmatch(r"[A-Za-z0-9._-]+(?:-[A-Za-z0-9._-]+)?",v):
+        raise SystemExit(f"invalid AWG parameter scalar at line {n}: {k}")
+    seen.add(k)
+    sys.stdout.buffer.write(k.encode()+b"\0"+v.encode()+b"\0")
+PY
+  )
+}
+
 mkdir -p "$NOVA_ETC/keys" "$NOVA_ETC/systemd"
 chmod 0700 "$NOVA_ETC/keys"
 
@@ -114,8 +155,7 @@ out.write_text("\n".join(lines) + "\n")
 out.chmod(0o600)
 PY
 else
-  # shellcheck disable=SC1090
-  source "$params"
+  load_awg_params "$params"
   existing_mode="${AWG_MODE:-balanced}"
   if [[ "$existing_mode" != "$mode" ]]; then
     [[ "$have_peers" -eq 0 ]] || die "AWG mode change requires peer reprovisioning; revoke peers first"
@@ -165,8 +205,7 @@ PY
 fi
 
 chmod 0600 "$params"
-# shellcheck disable=SC1090
-source "$params"
+load_awg_params "$params"
 
 # Reject legacy/static parameter files rather than silently advertising a
 # hardened profile with weak/common magic constants.
