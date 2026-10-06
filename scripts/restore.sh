@@ -75,10 +75,9 @@ rollback() {
 }
 trap rollback ERR
 
-# Reload restored policy/preferences, then overwrite host-specific runtime facts
-# with facts from the new recovery host.
-# shellcheck disable=SC1091
-source "$NOVA_ETC/nova.env"
+# Validate restored runtime strictly as data, then overwrite host-specific
+# facts with values from the recovery host.
+load_runtime
 write_runtime_batch \
   NOVA_TRAFFIC_GATE closed \
   NOVA_GATE_TOKEN "" \
