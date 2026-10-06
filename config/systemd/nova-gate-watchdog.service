@@ -1,0 +1,9 @@
+[Unit]
+Description=NOVA atomic safety gate watchdog
+After=nova-firewall.service
+Requires=nova-firewall.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/nova-privacy/scripts/atomic-safety-gate.sh watchdog
+UMask=0077
