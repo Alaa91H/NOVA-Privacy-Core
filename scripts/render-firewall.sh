@@ -107,8 +107,12 @@ case "${NOVA_TRAFFIC_GATE:-closed}" in
     EMERGENCY_GUARD_BLOCK='destroy table inet nova_emergency'
     ;;
   closed)
+    # These values are literal nftables template payload, not shell code.
+    # shellcheck disable=SC2089
     printf -v TRAFFIC_GATE_DROP       '    iifname "%s" ip saddr { %s, %s } drop comment "NOVA_TRAFFIC_GATE_CLOSED"'       "$NOVA_VPN_IF" "$NOVA_VPN_NET" "$NOVA_MGMT_NET"
+    # shellcheck disable=SC2089
     GATE_ACCEPT_COMMENT='comment "NOVA_GATE_CLOSED_POLICY"'
+    # shellcheck disable=SC2089
     printf -v EMERGENCY_GUARD_BLOCK \
       'destroy table inet nova_emergency\n\ntable inet nova_emergency {\n  chain forward {\n    type filter hook forward priority -300; policy accept;\n    iifname "%s" drop comment "NOVA_EMERGENCY_KILLSWITCH"\n  }\n}' \
       "$NOVA_VPN_IF"
@@ -117,6 +121,8 @@ case "${NOVA_TRAFFIC_GATE:-closed}" in
     die "invalid NOVA_TRAFFIC_GATE=${NOVA_TRAFFIC_GATE:-unset}"
     ;;
 esac
+# Python render-template consumes these strings verbatim from the environment.
+# shellcheck disable=SC2090
 export TRAFFIC_GATE_DROP GATE_ACCEPT_COMMENT EMERGENCY_GUARD_BLOCK
 
 if [[ -n "${NOVA_BOOTSTRAP_SSH_CIDR:-}" ]]; then
