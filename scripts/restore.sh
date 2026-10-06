@@ -51,8 +51,8 @@ restored="$tmpdir/extracted/etc/nova-privacy"
 [[ -s "$restored/keys/server.key" ]] || die "backup is missing server private key"
 
 # Recovery is always fail-closed, even if the source server was OPEN.
-write_runtime_kv NOVA_TRAFFIC_GATE closed
-NOVA_TRAFFIC_GATE=closed "$ROOT/scripts/render-firewall.sh" 2>/dev/null || true
+"$ROOT/scripts/atomic-safety-gate.sh" close restore-start
+load_runtime
 
 systemctl stop   nova-adguard-private.service   nova-adguard-strict.service   nova-awg.service 2>/dev/null || true
 
@@ -68,10 +68,9 @@ rollback() {
   warn "restore failed; restoring previous configuration with traffic CLOSED"
   rm -rf "$NOVA_ETC"
   [[ -d "$old" ]] && mv "$old" "$NOVA_ETC"
-  if [[ -r "$NOVA_ETC/nova.env" ]]; then
-    write_runtime_kv NOVA_TRAFFIC_GATE closed
+  if [[ -x "$ROOT/scripts/atomic-safety-gate.sh" ]]; then
+    "$ROOT/scripts/atomic-safety-gate.sh" close restore-rollback >/dev/null 2>&1 || true
   fi
-  NOVA_TRAFFIC_GATE=closed "$ROOT/scripts/render-firewall.sh" >/dev/null 2>&1 || true
   systemctl start     nova-awg.service     nova-adguard-private.service     nova-adguard-strict.service 2>/dev/null || true
 }
 trap rollback ERR
@@ -80,9 +79,13 @@ trap rollback ERR
 # with facts from the new recovery host.
 # shellcheck disable=SC1091
 source "$NOVA_ETC/nova.env"
-write_runtime_kv NOVA_TRAFFIC_GATE closed
-write_runtime_kv NOVA_BOOTSTRAP_SSH_CIDR "$recovery_bootstrap_cidr"
-write_runtime_kv NOVA_OS_BASELINE "ubuntu-26.04"
+write_runtime_batch \
+  NOVA_TRAFFIC_GATE closed \
+  NOVA_GATE_TOKEN "" \
+  NOVA_GATE_TXN_ID "" \
+  NOVA_GATE_COMMITTED_AT "" \
+  NOVA_BOOTSTRAP_SSH_CIDR "$recovery_bootstrap_cidr" \
+  NOVA_OS_BASELINE "ubuntu-26.04"
 if is_oci_host; then
   write_runtime_kv NOVA_PLATFORM "oci"
   write_runtime_kv NOVA_KERNEL_TRACK "linux-oracle"
@@ -101,7 +104,7 @@ bash "$ROOT/scripts/configure-memory.sh"
 bash "$ROOT/scripts/install-dns.sh"
 bash "$ROOT/scripts/install-doh-guard.sh"
 bash "$ROOT/scripts/install-automation.sh"
-NOVA_TRAFFIC_GATE=closed bash "$ROOT/scripts/render-firewall.sh"
+"$ROOT/scripts/atomic-safety-gate.sh" close restore-reconstructed
 
 "$ROOT/src/privacyctl" health
 "$ROOT/scripts/live-acceptance.sh" preflight
