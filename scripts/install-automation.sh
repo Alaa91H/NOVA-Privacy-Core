@@ -17,6 +17,8 @@ units=(
   nova-cleanup.timer
   nova-postboot-verify.service
   nova-encrypted-swap.service
+  nova-gate-watchdog.service
+  nova-gate-watchdog.timer
 )
 
 for unit in "${units[@]}"; do
@@ -25,9 +27,9 @@ done
 
 systemctl daemon-reload
 systemctl enable nova-postboot-verify.service
-systemctl enable --now nova-release-update.timer nova-maintenance.timer nova-cleanup.timer
+systemctl enable --now nova-release-update.timer nova-maintenance.timer nova-cleanup.timer nova-gate-watchdog.timer
 
-for timer in nova-release-update.timer nova-maintenance.timer nova-cleanup.timer; do
+for timer in nova-release-update.timer nova-maintenance.timer nova-cleanup.timer nova-gate-watchdog.timer; do
   systemctl is-enabled --quiet "$timer" || die "failed to enable $timer"
   systemctl is-active --quiet "$timer" || die "failed to start $timer"
 done
