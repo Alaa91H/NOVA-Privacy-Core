@@ -27,10 +27,10 @@ load_runtime() {
   [[ -r "$runtime" ]] || return 0
   require_cmd python3
 
-  local key value
-  while IFS= read -r -d '' key && IFS= read -r -d '' value; do
-    printf -v "$key" '%s' "$value"
-  done < <(python3 - "$runtime" <<'PY'
+  local parsed key value
+  parsed="$(mktemp)"
+  chmod 0600 "$parsed"
+  if ! python3 - "$runtime" >"$parsed" <<'PY'
 import os
 import pathlib
 import shlex
@@ -78,7 +78,15 @@ for n,raw in enumerate(p.read_text(encoding="utf-8",errors="strict").splitlines(
     value=parts[0]
     sys.stdout.buffer.write(key.encode()+b"\0"+value.encode()+b"\0")
 PY
-  )
+  then
+    rm -f "$parsed"
+    die "runtime state validation failed"
+  fi
+
+  while IFS= read -r -d '' key && IFS= read -r -d '' value; do
+    printf -v "$key" '%s' "$value"
+  done <"$parsed"
+  rm -f "$parsed"
 }
 
 
