@@ -14,9 +14,8 @@ runtime="$NOVA_ETC/nova.env"
 first_install=1
 if [[ -r "$runtime" ]]; then
   first_install=0
-  # Existing root-owned runtime state is authoritative during upgrades.
-  # shellcheck disable=SC1090
-  source "$runtime"
+  # Existing state is parsed as data by load_runtime; it is never executed.
+  load_runtime
 fi
 
 is_ubuntu_2604 ||
