@@ -16,16 +16,16 @@ mode="${1:-${NOVA_AWG_MODE:-balanced}}"
 case "$mode" in balanced|max) ;; *) die "AWG mode must be balanced or max" ;; esac
 
 load_awg_params() {
-  local file="$1" key value
+  local file="$1" key value parsed
   unset AWG_PARAMS_VERSION AWG_MODE AWG_JC AWG_JMIN AWG_JMAX \
     AWG_S1 AWG_S2 AWG_S3 AWG_S4 AWG_H1 AWG_H2 AWG_H3 AWG_H4 \
     AWG_CONTENT_PADDING AWG_RANDOM_TRAILERS AWG_DISABLE_COOKIES \
     AWG_REKEY_AFTER AWG_REKEY_TIMEOUT AWG_REJECT_AFTER \
     AWG_KEEPALIVE_TIMEOUT AWG_MAX_HANDSHAKE_ATTEMPTS
 
-  while IFS= read -r -d '' key && IFS= read -r -d '' value; do
-    printf -v "$key" '%s' "$value"
-  done < <(python3 - "$file" <<'PY'
+  parsed="$(mktemp)"
+  chmod 0600 "$parsed"
+  if ! python3 - "$file" >"$parsed" <<'PY'
 import os,pathlib,re,stat,sys
 p=pathlib.Path(sys.argv[1]); st=os.lstat(p)
 if stat.S_ISLNK(st.st_mode) or not stat.S_ISREG(st.st_mode):
@@ -53,8 +53,17 @@ for n,raw in enumerate(p.read_text(encoding="utf-8",errors="strict").splitlines(
     seen.add(k)
     sys.stdout.buffer.write(k.encode()+b"\0"+v.encode()+b"\0")
 PY
-  )
+  then
+    rm -f "$parsed"
+    die "AWG parameter validation failed"
+  fi
+
+  while IFS= read -r -d '' key && IFS= read -r -d '' value; do
+    printf -v "$key" '%s' "$value"
+  done <"$parsed"
+  rm -f "$parsed"
 }
+
 
 mkdir -p "$NOVA_ETC/keys" "$NOVA_ETC/systemd"
 chmod 0700 "$NOVA_ETC/keys"
