@@ -106,6 +106,16 @@ capture_bootstrap_ssh_cidr() {
   fi
 }
 
+valid_cidr() {
+  python3 - "$1" <<'PY'
+import ipaddress,sys
+try:
+    ipaddress.ip_network(sys.argv[1], strict=False)
+except ValueError:
+    raise SystemExit(1)
+PY
+}
+
 valid_peer_name() {
   [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$ ]]
 }
