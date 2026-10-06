@@ -53,6 +53,9 @@ PY
 
 chmod 0644 "$validated"
 if [[ -s "$current" ]] && cmp -s "$current" "$validated"; then
+  if [[ "$previous_gate" == "open" ]]; then
+    "$ROOT/scripts/reopen-verified.sh"
+  fi
   log "encrypted-DNS IP set unchanged"
   exit 0
 fi
