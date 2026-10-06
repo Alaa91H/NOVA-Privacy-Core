@@ -76,7 +76,7 @@ table inet nova {
     iifname "@@VPN_IF@@" ip saddr { @@VPN_NET@@, @@MGMT_NET@@ } udp dport 853 drop
     ct state established,related accept
 
-    iifname "@@VPN_IF@@" oifname "@@WAN_IF@@" ip saddr { @@VPN_NET@@, @@MGMT_NET@@ } accept
+    iifname "@@VPN_IF@@" oifname "@@WAN_IF@@" ip saddr { @@VPN_NET@@, @@MGMT_NET@@ } accept @@GATE_ACCEPT_COMMENT@@
   }
 
   chain output {
