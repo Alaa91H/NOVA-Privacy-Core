@@ -11,6 +11,12 @@ require_root
 load_runtime
 acquire_nova_lock
 
+previous_gate="${NOVA_TRAFFIC_GATE:-closed}"
+if [[ "$previous_gate" == "open" ]]; then
+  "$ROOT/scripts/atomic-safety-gate.sh" close profile-change
+  load_runtime
+fi
+
 name="${1:-}"
 profile="${2:-}"
 valid_peer_name "$name" || die "invalid peer name"
@@ -46,4 +52,7 @@ chmod 0600 "$peer"
 "$ROOT/scripts/render-firewall.sh"
 rm -f "$old"
 trap - ERR
+if [[ "$previous_gate" == "open" ]]; then
+  "$ROOT/scripts/reopen-verified.sh"
+fi
 log "profile updated: $name -> $profile"
