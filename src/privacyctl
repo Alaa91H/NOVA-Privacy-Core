@@ -49,16 +49,6 @@ service_state() {
   fi
 }
 
-valid_cidr() {
-  python3 - "$1" <<'PY'
-import ipaddress,sys
-try:
-    ipaddress.ip_network(sys.argv[1], strict=False)
-except ValueError:
-    raise SystemExit(1)
-PY
-}
-
 cmd_status() {
   printf 'NOVA Privacy Core %s\n' "$(cat "$ROOT/VERSION" 2>/dev/null || echo unknown)"
   printf 'OS baseline: %s\n' "${NOVA_OS_BASELINE:-unknown}"
@@ -118,6 +108,11 @@ cmd_health() {
     failed=1
   fi
 
+  if ! "$ROOT/scripts/atomic-safety-gate.sh" status >/dev/null 2>&1; then
+    printf 'FAIL atomic safety gate state is ambiguous\n'
+    failed=1
+  fi
+
   if ! ip link show "$NOVA_VPN_IF" >/dev/null 2>&1; then
     printf 'FAIL interface %s missing\n' "$NOVA_VPN_IF"
     failed=1
@@ -151,7 +146,7 @@ cmd_health() {
     failed=1
   fi
 
-  for service in     nova-doh-ips.timer     nova-release-update.timer     nova-maintenance.timer     nova-cleanup.timer; do
+  for service in     nova-doh-ips.timer     nova-release-update.timer     nova-maintenance.timer     nova-cleanup.timer     nova-gate-watchdog.timer; do
     if ! systemctl is-active --quiet "$service"; then
       printf 'FAIL automation timer %s inactive\n' "$service"
       failed=1
@@ -228,48 +223,16 @@ recent_management_handshake() {
 }
 
 cmd_activate() {
-  acquire_nova_lock
-  recent_management_handshake ||
-    die "no management peer has a handshake in the last 5 minutes"
-  [[ ! -e /var/run/reboot-required ]] ||
-    die "a reboot is required; refusing to open protected forwarding on the old kernel"
-
-  cmd_health || die "host health failed; traffic remains CLOSED"
-  "$ROOT/scripts/verify-leaks.sh" ||
-    die "privacy/leak checks failed; traffic remains CLOSED"
-
-  local old_bootstrap="${NOVA_BOOTSTRAP_SSH_CIDR:-}"
-
-  rollback_activation() {
-    warn "activation failed; restoring bootstrap SSH and forcing traffic gate CLOSED"
-    write_runtime_kv NOVA_TRAFFIC_GATE closed
-    write_runtime_kv NOVA_BOOTSTRAP_SSH_CIDR "$old_bootstrap"
-    NOVA_TRAFFIC_GATE=closed NOVA_BOOTSTRAP_SSH_CIDR="$old_bootstrap"       "$ROOT/scripts/render-firewall.sh" >/dev/null 2>&1 || true
-  }
-  trap rollback_activation ERR
-
-  write_runtime_kv NOVA_TRAFFIC_GATE open
-  write_runtime_kv NOVA_BOOTSTRAP_SSH_CIDR ""
-  NOVA_TRAFFIC_GATE=open NOVA_BOOTSTRAP_SSH_CIDR=""     "$ROOT/scripts/render-firewall.sh"
-
-  # Reload runtime values before the final acceptance suite.
-  load_runtime
-  "$ROOT/scripts/live-acceptance.sh" server
-
-  trap - ERR
-  log "NOVA activated: public bootstrap SSH removed and protected forwarding OPEN"
+  exec "$ROOT/scripts/atomic-safety-gate.sh" open interactive
 }
 
 cmd_gate() {
   case "${1:-}" in
     status)
-      printf '%s\n' "${NOVA_TRAFFIC_GATE:-closed}"
+      exec "$ROOT/scripts/atomic-safety-gate.sh" status
       ;;
     close)
-      acquire_nova_lock
-      write_runtime_kv NOVA_TRAFFIC_GATE closed
-      NOVA_TRAFFIC_GATE=closed "$ROOT/scripts/render-firewall.sh"
-      log "protected forwarding CLOSED"
+      exec "$ROOT/scripts/atomic-safety-gate.sh" close operator
       ;;
     *)
       die "usage: privacyctl gate status|close"
@@ -366,8 +329,12 @@ EOF
     cidr="${2:-}"
     [[ -n "$cidr" ]] || die "CIDR required"
     valid_cidr "$cidr" || die "invalid CIDR: $cidr"
+    if [[ "${NOVA_TRAFFIC_GATE:-closed}" == "open" ]]; then
+      "$ROOT/scripts/atomic-safety-gate.sh" close bootstrap-ssh-change
+      load_runtime
+    fi
     write_runtime_kv NOVA_BOOTSTRAP_SSH_CIDR "$cidr"
-    NOVA_BOOTSTRAP_SSH_CIDR="$cidr" exec "$ROOT/scripts/render-firewall.sh"
+    NOVA_TRAFFIC_GATE=closed NOVA_GATE_TOKEN="" NOVA_BOOTSTRAP_SSH_CIDR="$cidr"       exec "$ROOT/scripts/render-firewall.sh"
     ;;
   leaks)
     [[ "${2:-}" == "test" ]] || { usage; exit 2; }
