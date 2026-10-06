@@ -11,6 +11,12 @@ require_root
 load_runtime
 acquire_nova_lock
 
+previous_gate="${NOVA_TRAFFIC_GATE:-closed}"
+if [[ "$previous_gate" == "open" ]]; then
+  "$ROOT/scripts/atomic-safety-gate.sh" close peer-revoke
+  load_runtime
+fi
+
 name="${1:-}"
 valid_peer_name "$name" || die "invalid peer name"
 peer="$(peer_path "$name")"
@@ -32,5 +38,8 @@ rm -f "$disabled"
 rm -rf "$(peer_secret_dir "$name")"
 rm -f "/root/nova-peers/$name.conf" "/root/nova-peers/$name.qr.png"
 trap - ERR
+if [[ "$previous_gate" == "open" ]]; then
+  "$ROOT/scripts/reopen-verified.sh"
+fi
 
 log "peer revoked: $name"
