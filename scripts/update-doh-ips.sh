@@ -11,6 +11,12 @@ acquire_nova_lock
 require_cmd curl
 require_cmd python3
 
+previous_gate="${NOVA_TRAFFIC_GATE:-closed}"
+if [[ "$previous_gate" == "open" ]]; then
+  "$ROOT/scripts/atomic-safety-gate.sh" close doh-set-refresh
+  load_runtime
+fi
+
 state_dir="$NOVA_STATE/doh"
 current="$state_dir/doh-ipv4.txt"
 tmp="$(mktemp)"
@@ -78,4 +84,7 @@ if nft list table inet nova >/dev/null 2>&1; then
   fi
 fi
 
+if [[ "$previous_gate" == "open" ]]; then
+  "$ROOT/scripts/reopen-verified.sh"
+fi
 log "encrypted-DNS IP set updated"
