@@ -11,6 +11,12 @@ require_root
 load_runtime
 acquire_nova_lock
 
+previous_gate="${NOVA_TRAFFIC_GATE:-closed}"
+if [[ "$previous_gate" == "open" ]]; then
+  "$ROOT/scripts/atomic-safety-gate.sh" close peer-create
+  load_runtime
+fi
+
 name="${1:-}"
 [[ -n "$name" ]] || die "usage: create-peer.sh NAME [PROFILE] [--management]"
 shift || true
@@ -71,5 +77,8 @@ trap rollback ERR
 conf="$(write_client_config "$name" "$ip" "$client_private" "$psk")"
 
 trap - ERR
+if [[ "$previous_gate" == "open" ]]; then
+  "$ROOT/scripts/reopen-verified.sh"
+fi
 log "peer created: $name ($ip, $profile)"
 printf 'client_config=%s\n' "$conf"
