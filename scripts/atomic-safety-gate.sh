@@ -107,6 +107,10 @@ full_close() {
   clear_records
 }
 
+firewall_digest() {
+  nft --stateless list table inet nova 2>/dev/null | sha256sum | awk '{print $1}'
+}
+
 firewall_default_drop() {
   nft list chain inet nova input 2>/dev/null | grep -q 'policy drop' &&
     nft list chain inet nova forward 2>/dev/null | grep -q 'policy drop' &&
@@ -319,7 +323,7 @@ open_gate() {
 
   local committed_at
   committed_at="$(date +%s)"
-  atomic_record "$seal"     TOKEN "$token"     BOOT_ID "$(boot_id)"     COMMITTED_AT "$committed_at"
+  atomic_record "$seal"     TOKEN "$token"     BOOT_ID "$(boot_id)"     COMMITTED_AT "$committed_at"     FIREWALL_DIGEST "$(firewall_digest)"
   write_runtime_batch NOVA_GATE_COMMITTED_AT "$committed_at"
 
   rm -f "$pending"
@@ -344,10 +348,14 @@ pending_valid() {
 }
 
 seal_valid() {
-  local token="$1" stoken sboot
+  local token="$1" stoken sboot sdigest live_digest
   stoken="$(record_field "$seal" TOKEN 2>/dev/null || true)"
   sboot="$(record_field "$seal" BOOT_ID 2>/dev/null || true)"
-  [[ "$stoken" == "$token" && "$sboot" == "$(boot_id)" ]]
+  sdigest="$(record_field "$seal" FIREWALL_DIGEST 2>/dev/null || true)"
+  [[ "$stoken" == "$token" && "$sboot" == "$(boot_id)" ]] || return 1
+  [[ "$sdigest" =~ ^[a-f0-9]{64}$ ]] || return 1
+  live_digest="$(firewall_digest)"
+  [[ "$live_digest" == "$sdigest" ]]
 }
 
 watchdog() {
@@ -402,6 +410,21 @@ deadman() {
   clear_records
 }
 
+refresh_seal() {
+  local token="${1:-}" stoken sboot committed_at
+  [[ "$token" =~ ^[a-f0-9]{32}$ ]] || die "invalid gate token for seal refresh"
+  [[ "${NOVA_TRAFFIC_GATE:-closed}" == "open" && "${NOVA_GATE_TOKEN:-}" == "$token" ]] ||
+    die "refusing seal refresh outside matching OPEN runtime state"
+  firewall_open_live "$token" || die "refusing seal refresh for invalid live firewall"
+  stoken="$(record_field "$seal" TOKEN 2>/dev/null || true)"
+  sboot="$(record_field "$seal" BOOT_ID 2>/dev/null || true)"
+  committed_at="$(record_field "$seal" COMMITTED_AT 2>/dev/null || true)"
+  [[ "$stoken" == "$token" && "$sboot" == "$(boot_id)" ]] ||
+    die "refusing seal refresh without a valid existing acceptance seal"
+  [[ "$committed_at" =~ ^[0-9]+$ ]] || committed_at="$(date +%s)"
+  atomic_record "$seal" TOKEN "$token" BOOT_ID "$(boot_id)" COMMITTED_AT "$committed_at" FIREWALL_DIGEST "$(firewall_digest)"
+}
+
 status() {
   printf 'runtime_gate=%s\n' "${NOVA_TRAFFIC_GATE:-closed}"
   printf 'runtime_token=%s\n' "${NOVA_GATE_TOKEN:-}"
@@ -429,6 +452,7 @@ case "$cmd" in
   watchdog) watchdog ;;
   deadman) deadman "${2:-}" ;;
   status) status ;;
+  refresh-seal) refresh_seal "${2:-}" ;;
   verify)
     token="${NOVA_GATE_TOKEN:-$(openssl rand -hex 16)}"
     txn="$(mktemp -d "$NOVA_RUN/gate-verify.XXXXXX")"
@@ -436,5 +460,5 @@ case "$cmd" in
     deep_preopen_verify "$token" "${2:-interactive}" "$txn" "${NOVA_BOOTSTRAP_SSH_CIDR:-}"
     printf 'PASS atomic safety gate pre-open verification\n'
     ;;
-  *) die "usage: atomic-safety-gate.sh open [interactive|automatic]|close [reason]|boot-close|watchdog|deadman TOKEN|status|verify [interactive|automatic]" ;;
+  *) die "usage: atomic-safety-gate.sh open [interactive|automatic]|close [reason]|boot-close|watchdog|deadman TOKEN|status|refresh-seal TOKEN|verify [interactive|automatic]" ;;
 esac
