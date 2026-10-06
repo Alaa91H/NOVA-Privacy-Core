@@ -1,0 +1,12 @@
+[Unit]
+Description=Continuously enforce NOVA atomic safety gate invariants
+
+[Timer]
+OnBootSec=10s
+OnUnitActiveSec=10s
+AccuracySec=1s
+RandomizedDelaySec=0
+Persistent=false
+
+[Install]
+WantedBy=timers.target
