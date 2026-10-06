@@ -78,6 +78,9 @@ print(", ".join(sorted(set(out), key=lambda x: int(ipaddress.ip_address(x)))), e
 PY
 }
 
+valid_ifname "$NOVA_WAN_IF" || die "unsafe NOVA_WAN_IF"
+valid_ifname "$NOVA_VPN_IF" || die "unsafe NOVA_VPN_IF"
+
 WAN_IF="$NOVA_WAN_IF"
 VPN_IF="$NOVA_VPN_IF"
 AWG_PORT="$NOVA_AWG_PORT"
@@ -149,6 +152,14 @@ case "$mode" in
     "$nft_bin" -f "$candidate"
     mv -f "$candidate" "$final"
     trap - EXIT
+
+    if [[ "${NOVA_TRAFFIC_GATE:-closed}" == "open" ]]; then
+      if ! "$ROOT/scripts/atomic-safety-gate.sh" refresh-seal "${NOVA_GATE_TOKEN:-}"; then
+        warn "OPEN policy changed but acceptance seal could not be refreshed"
+        "$ROOT/scripts/atomic-safety-gate.sh" close seal-refresh-failed || true
+        die "refusing unsealed OPEN firewall policy"
+      fi
+    fi
     log "atomic nftables policy loaded"
     ;;
 esac
