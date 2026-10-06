@@ -6,9 +6,15 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=scripts/lib/common.sh
 source "$ROOT/scripts/lib/common.sh"
 require_root
-load_runtime
 
 cmd="${1:-status}"
+load_defaults
+runtime_valid=1
+if ! load_runtime; then
+  runtime_valid=0
+  load_defaults
+fi
+
 case "$cmd" in
   watchdog|deadman) ;;
   *) acquire_nova_lock ;;
@@ -444,6 +450,40 @@ status() {
     printf 'acceptance_seal=not-required\n'
   fi
 }
+
+salvage_vpn_if() {
+  local runtime="$NOVA_ETC/nova.env"
+  [[ -f "$runtime" && ! -L "$runtime" ]] || return 1
+  python3 - "$runtime" <<'PY'
+import os,pathlib,shlex,stat,sys,re
+p=pathlib.Path(sys.argv[1]); st=os.lstat(p)
+if not stat.S_ISREG(st.st_mode) or st.st_uid != 0 or st.st_mode & 0o077:
+    raise SystemExit(1)
+for raw in p.read_text(encoding="utf-8",errors="strict").splitlines():
+    if raw.startswith("NOVA_VPN_IF="):
+        parts=shlex.split(raw.split("=",1)[1],posix=True)
+        if len(parts)==1 and re.fullmatch(r"[A-Za-z0-9_.:-]{1,15}",parts[0]):
+            print(parts[0]); raise SystemExit(0)
+raise SystemExit(1)
+PY
+}
+
+if [[ "$runtime_valid" -ne 1 ]]; then
+  case "$cmd" in
+    boot-close|watchdog|deadman)
+      salvaged="$(salvage_vpn_if 2>/dev/null || true)"
+      if [[ -n "$salvaged" ]]; then
+        NOVA_VPN_IF="$salvaged"
+      fi
+      warn "runtime state is invalid; installing emergency kill-switch and refusing normal operation"
+      emergency_kernel_close
+      exit 1
+      ;;
+    *)
+      die "runtime state is invalid; repair it only from a trusted console while emergency gate remains closed"
+      ;;
+  esac
+fi
 
 case "$cmd" in
   open) open_gate "${2:-interactive}" ;;
