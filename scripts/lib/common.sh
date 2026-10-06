@@ -24,10 +24,61 @@ load_defaults() {
 load_runtime() {
   load_defaults
   local runtime="${NOVA_ETC}/nova.env"
-  if [[ -r "$runtime" ]]; then
-    # shellcheck disable=SC1090
-    source "$runtime"
-  fi
+  [[ -r "$runtime" ]] || return 0
+  require_cmd python3
+
+  local key value
+  while IFS= read -r -d '' key && IFS= read -r -d '' value; do
+    printf -v "$key" '%s' "$value"
+  done < <(python3 - "$runtime" <<'PY'
+import os
+import pathlib
+import shlex
+import stat
+import sys
+
+p=pathlib.Path(sys.argv[1])
+st=os.lstat(p)
+if stat.S_ISLNK(st.st_mode) or not stat.S_ISREG(st.st_mode):
+    raise SystemExit(f"unsafe runtime file type: {p}")
+if st.st_uid != 0:
+    raise SystemExit(f"runtime file must be root-owned: {p}")
+if st.st_mode & 0o077:
+    raise SystemExit(f"runtime file must be private (0600): {p}")
+
+allowed={
+    "NOVA_WAN_IF","NOVA_PUBLIC_ENDPOINT","NOVA_BOOTSTRAP_SSH_CIDR",
+    "NOVA_REPOSITORY","NOVA_REPOSITORY_URL","NOVA_OS_BASELINE",
+    "NOVA_PLATFORM","NOVA_KERNEL_TRACK","NOVA_TRAFFIC_GATE",
+    "NOVA_GATE_TOKEN","NOVA_GATE_TXN_ID","NOVA_GATE_COMMITTED_AT",
+    "NOVA_GATE_LAST_CLOSE_REASON","NOVA_AWG_MODE","NOVA_AWG_BACKEND",
+    "NOVA_AWG_GO_INSTALLED_VERSION","NOVA_AWG_GO_SHA256",
+    "NOVA_AWG_GO_MODULE_SUM","NOVA_AWG_GO_MOD_SUM",
+    "NOVA_AWG_TOOLS_PACKAGE_VERSION","NOVA_SWAP_MIB",
+    "NOVA_ADGUARD_VERSION","NOVA_GITHUB_CLI_VERSION",
+}
+seen=set()
+for n,raw in enumerate(p.read_text(encoding="utf-8",errors="strict").splitlines(),1):
+    if not raw or raw.startswith("#"):
+        continue
+    if "=" not in raw:
+        raise SystemExit(f"invalid runtime record at line {n}")
+    key,rhs=raw.split("=",1)
+    if key not in allowed:
+        raise SystemExit(f"unapproved runtime key at line {n}: {key}")
+    if key in seen:
+        raise SystemExit(f"duplicate runtime key at line {n}: {key}")
+    seen.add(key)
+    try:
+        parts=shlex.split(rhs,posix=True)
+    except ValueError as exc:
+        raise SystemExit(f"invalid runtime value at line {n}") from exc
+    if len(parts) != 1:
+        raise SystemExit(f"runtime value must decode to exactly one scalar at line {n}")
+    value=parts[0]
+    sys.stdout.buffer.write(key.encode()+b"\0"+value.encode()+b"\0")
+PY
+  )
 }
 
 
