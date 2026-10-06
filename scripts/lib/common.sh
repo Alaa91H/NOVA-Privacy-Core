@@ -116,6 +116,10 @@ except ValueError:
 PY
 }
 
+valid_ifname() {
+  [[ "$1" =~ ^[A-Za-z0-9_.:-]{1,15}$ ]]
+}
+
 valid_peer_name() {
   [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$ ]]
 }
