@@ -314,7 +314,7 @@ open_gate() {
   write_runtime_batch     NOVA_TRAFFIC_GATE open     NOVA_GATE_TOKEN "$token"     NOVA_GATE_TXN_ID "$token"     NOVA_GATE_COMMITTED_AT ""     NOVA_BOOTSTRAP_SSH_CIDR ""
 
   load_runtime
-  "$ROOT/scripts/live-acceptance.sh" server
+  NOVA_GATE_TRANSACTION=1 "$ROOT/scripts/live-acceptance.sh" server
   "$ROOT/scripts/verify-leaks.sh"
 
   local committed_at
