@@ -184,25 +184,87 @@ load_peer_registry() {
     die "peer registry filename/name mismatch: $file"
 }
 
-write_runtime_kv() {
-  local key="$1" value="$2" file="${NOVA_ETC}/nova.env"
+write_runtime_batch() {
+  (( $# > 0 && $# % 2 == 0 )) ||
+    die "write_runtime_batch requires KEY VALUE pairs"
+
+  local file="${NOVA_ETC}/nova.env"
   mkdir -p "$NOVA_ETC"
-  touch "$file"
-  chmod 0600 "$file"
-  python3 - "$file" "$key" "$value" <<'PY'
-import pathlib,sys,shlex
-p=pathlib.Path(sys.argv[1]); key=sys.argv[2]; value=sys.argv[3]
-lines=p.read_text().splitlines() if p.exists() else []
-out=[]; done=False
+
+  python3 - "$file" "$@" <<'PY'
+import os
+import pathlib
+import re
+import shlex
+import stat
+import sys
+import tempfile
+
+p = pathlib.Path(sys.argv[1])
+args = sys.argv[2:]
+pairs = list(zip(args[0::2], args[1::2]))
+key_re = re.compile(r"^[A-Z][A-Z0-9_]*$")
+
+for key, _ in pairs:
+    if not key_re.fullmatch(key):
+        raise SystemExit(f"invalid runtime key: {key!r}")
+
+if p.exists() or p.is_symlink():
+    st = os.lstat(p)
+    if stat.S_ISLNK(st.st_mode) or not stat.S_ISREG(st.st_mode):
+        raise SystemExit(f"unsafe runtime file type: {p}")
+    if st.st_uid != 0:
+        raise SystemExit(f"runtime file must be root-owned: {p}")
+    lines = p.read_text(encoding="utf-8", errors="strict").splitlines()
+    uid, gid = st.st_uid, st.st_gid
+else:
+    lines = []
+    uid, gid = 0, 0
+
+updates = dict(pairs)
+out = []
+seen = set()
 for line in lines:
-    if line.startswith(key+"="):
-        out.append(f"{key}={shlex.quote(value)}"); done=True
-    else:
-        out.append(line)
-if not done:
-    out.append(f"{key}={shlex.quote(value)}")
-p.write_text("\n".join(out)+"\n")
+    if "=" in line:
+        key = line.split("=", 1)[0]
+        if key in updates:
+            if key not in seen:
+                out.append(f"{key}={shlex.quote(updates[key])}")
+                seen.add(key)
+            continue
+    out.append(line)
+
+for key, value in pairs:
+    if key not in seen:
+        out.append(f"{key}={shlex.quote(value)}")
+        seen.add(key)
+
+p.parent.mkdir(parents=True, exist_ok=True)
+fd, tmp_name = tempfile.mkstemp(prefix=".nova.env.", dir=p.parent)
+try:
+    os.fchmod(fd, 0o600)
+    os.fchown(fd, uid, gid)
+    data = ("\n".join(out) + "\n").encode()
+    with os.fdopen(fd, "wb", closefd=True) as fh:
+        fh.write(data)
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp_name, p)
+    dfd = os.open(p.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(dfd)
+    finally:
+        os.close(dfd)
+finally:
+    try:
+        os.unlink(tmp_name)
+    except FileNotFoundError:
+        pass
 PY
+}
+
+write_runtime_kv() {
+  write_runtime_batch "$1" "$2"
 }
 
 systemd_reload() {
