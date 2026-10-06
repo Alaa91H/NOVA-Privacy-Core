@@ -11,6 +11,12 @@ require_root
 load_runtime
 acquire_nova_lock
 
+previous_gate="${NOVA_TRAFFIC_GATE:-closed}"
+if [[ "$previous_gate" == "open" ]]; then
+  "$ROOT/scripts/atomic-safety-gate.sh" close peer-rotate
+  load_runtime
+fi
+
 name="${1:-}"
 valid_peer_name "$name" || die "invalid peer name"
 peer="$(peer_path "$name")"
@@ -55,5 +61,8 @@ conf="$(write_client_config "$name" "$PEER_IP" "$client_private" "$psk")"
 
 rm -f "$old_peer" "$old_psk"
 trap - ERR
+if [[ "$previous_gate" == "open" ]]; then
+  "$ROOT/scripts/reopen-verified.sh"
+fi
 log "peer credentials rotated: $name"
 printf 'client_config=%s\n' "$conf"
