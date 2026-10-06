@@ -84,13 +84,22 @@ grep -q '198.51.100.10/32 tcp dport 22 accept' "$rendered"
 grep -q 'elements = { 10.77.0.20 }' "$rendered"
 grep -q 'elements = { 10.77.10.20 }' "$rendered"
 grep -q 'NOVA_TRAFFIC_GATE_CLOSED' "$rendered"
+grep -q 'NOVA_EMERGENCY_KILLSWITCH' "$rendered"
 
 export NOVA_TRAFFIC_GATE=open
-bash "$ROOT/scripts/render-firewall.sh"
-rendered="$NOVA_ETC/nftables/nova.nft"
+export NOVA_GATE_TOKEN=0123456789abcdef0123456789abcdef
+open_candidate="$tmp/open.nft"
+bash "$ROOT/scripts/render-firewall.sh" --stage "$open_candidate"
+rendered="$open_candidate"
 if grep -q 'NOVA_TRAFFIC_GATE_CLOSED' "$rendered"; then
   printf 'FAIL open traffic gate still rendered CLOSED marker\n' >&2
   exit 1
 fi
+if grep -q 'NOVA_EMERGENCY_KILLSWITCH' "$rendered"; then
+  printf 'FAIL open traffic gate still contains emergency kill-switch\n' >&2
+  exit 1
+fi
+grep -q 'NOVA_GATE_OPEN_0123456789abcdef0123456789abcdef' "$rendered"
+grep -q 'destroy table inet nova_emergency' "$rendered"
 
-printf 'PASS test-render-firewall closed/open gate rendering\n'
+printf 'PASS test-render-firewall closed/open atomic gate rendering\n'
