@@ -72,7 +72,13 @@ server_services() {
 
 automation_ready() {
   local unit
-  for unit in     nova-doh-ips.timer     nova-release-update.timer     nova-maintenance.timer     nova-cleanup.timer     apt-daily.timer     apt-daily-upgrade.timer; do
+  for unit in \
+    nova-doh-ips.timer \
+    nova-release-update.timer \
+    nova-maintenance.timer \
+    nova-cleanup.timer \
+    nova-gate-watchdog.timer \
+    apt-daily.timer; do
     systemctl is-enabled --quiet "$unit" || return 1
     systemctl is-active --quiet "$unit" || return 1
   done
@@ -101,9 +107,21 @@ firewall_ok() {
 }
 
 traffic_gate_open() {
-  [[ "${NOVA_TRAFFIC_GATE:-closed}" == "open" ]] &&
-    ! nft list chain inet nova forward 2>/dev/null |
-      grep -Fq 'NOVA_TRAFFIC_GATE_CLOSED'
+  local token="${NOVA_GATE_TOKEN:-}"
+  [[ "${NOVA_TRAFFIC_GATE:-closed}" == "open" ]] || return 1
+  [[ "$token" =~ ^[a-f0-9]{32}$ ]] || return 1
+  ! nft list table inet nova_emergency >/dev/null 2>&1 || return 1
+  nft list chain inet nova forward 2>/dev/null |
+    grep -Fq "NOVA_GATE_OPEN_$token" || return 1
+  ! nft list chain inet nova forward 2>/dev/null |
+    grep -Fq 'NOVA_TRAFFIC_GATE_CLOSED' || return 1
+
+  # During the atomic OPEN transaction the acceptance seal is deliberately
+  # written only after this suite passes.  All external/server invocations must
+  # prove the committed seal through the central gate status command.
+  if [[ "${NOVA_GATE_TRANSACTION:-0}" != "1" ]]; then
+    "$ROOT/scripts/atomic-safety-gate.sh" status >/dev/null 2>&1 || return 1
+  fi
 }
 
 no_public_sensitive_ports() {
@@ -143,6 +161,14 @@ ipv6_fail_closed() {
   [[ "$(sysctl -n net.ipv6.conf.all.forwarding)" == "0" ]] &&
     [[ "$(sysctl -n net.ipv6.conf.all.disable_ipv6)" == "1" ]] &&
     [[ "$(sysctl -n net.ipv6.conf.default.disable_ipv6)" == "1" ]]
+}
+
+runtime_file_safe() {
+  local file="$NOVA_ETC/nova.env" perm
+  [[ -f "$file" && ! -L "$file" ]] || return 1
+  [[ "$(stat -c %u "$file")" == "0" ]] || return 1
+  perm="$(stat -c %a "$file")"
+  (( (8#$perm & 077) == 0 ))
 }
 
 secret_modes_ok() {
@@ -225,6 +251,7 @@ server_checks() {
   run_check "VPN DNS stack responds" dns_stack_ok
   run_check "STRICT encrypted-DNS IP set loaded" doh_set_ok
   run_check "AdGuard query logs disabled" querylogs_disabled
+  run_check "runtime state file is root-owned and private" runtime_file_safe
   run_check "secret files are not group/world accessible" secret_modes_ok
   run_check "SSH root/password/keyboard-interactive login disabled" ssh_policy_hardened
   run_check "OpenSSH hybrid PQ KEX available" ssh_pq_kex_available
