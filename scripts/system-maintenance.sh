@@ -20,8 +20,8 @@ marker="$marker_dir/reopen-after-boot"
 install -d -m 0700 "$marker_dir"
 
 close_gate() {
-  write_runtime_kv NOVA_TRAFFIC_GATE closed
-  NOVA_TRAFFIC_GATE=closed "$ROOT/scripts/render-firewall.sh"
+  "$ROOT/scripts/atomic-safety-gate.sh" close maintenance
+  load_runtime
 }
 
 reopen_gate() {
