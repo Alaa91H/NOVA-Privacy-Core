@@ -98,9 +98,9 @@ source_root="$tmp/extracted/NOVA-Privacy-Core-$tag"
   bash tests/test-render-firewall.sh
 )
 
-# Only now enter maintenance mode.
-write_runtime_kv NOVA_TRAFFIC_GATE closed
-NOVA_TRAFFIC_GATE=closed "$ROOT/scripts/render-firewall.sh"
+# Only now enter maintenance mode, through the single atomic gate.
+"$ROOT/scripts/atomic-safety-gate.sh" close release-update
+load_runtime
 
 cp -a "$NOVA_ETC" "$config_snapshot"
 rollback_archive="$rollback_dir/source-${current}-$(date -u +%Y%m%dT%H%M%SZ).tar.gz"
@@ -119,8 +119,7 @@ rollback() {
     # shellcheck disable=SC1090
     source "$NOVA_INSTALL_ROOT/scripts/lib/common.sh"
     load_runtime
-    write_runtime_kv NOVA_TRAFFIC_GATE closed
-    NOVA_TRAFFIC_GATE=closed       "$NOVA_INSTALL_ROOT/scripts/render-firewall.sh" >/dev/null 2>&1 || true
+    "$NOVA_INSTALL_ROOT/scripts/atomic-safety-gate.sh" close release-rollback >/dev/null 2>&1 || true
   fi
 }
 trap rollback ERR
