@@ -411,7 +411,8 @@ def test_periodic_maintenance_is_fail_closed():
 
     assert "full-upgrade" in maint
     assert "DPkg::Lock::Timeout=600" in maint
-    assert "NOVA_TRAFFIC_GATE closed" in maint
+    assert 'atomic-safety-gate.sh" close maintenance' in maint
+    assert "write_runtime_kv NOVA_TRAFFIC_GATE" not in maint
     assert "reopen-after-boot" in maint
     assert "install-github-cli.sh" in maint
     assert "systemctl reboot" in maint
