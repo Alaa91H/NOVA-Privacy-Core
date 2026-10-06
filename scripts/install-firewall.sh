@@ -12,10 +12,8 @@ require_cmd nft
 have_management=0
 shopt -s nullglob
 for f in "$NOVA_ETC"/peers.d/*.env; do
-  MANAGEMENT=0
-  # shellcheck disable=SC1090
-  source "$f"
-  [[ "${MANAGEMENT:-0}" == "1" ]] && have_management=1
+  load_peer_registry "$f"
+  [[ "$PEER_MANAGEMENT" == "1" ]] && have_management=1
 done
 
 if [[ -n "${SSH_CONNECTION:-}" && -z "${NOVA_BOOTSTRAP_SSH_CIDR:-}" && "$have_management" -ne 1 ]]; then
@@ -24,8 +22,9 @@ fi
 
 install -m 0644 "$ROOT/config/systemd/nova-firewall.service" /etc/systemd/system/nova-firewall.service
 
-# Validate and atomically load before enabling packet forwarding.
-"$ROOT/scripts/render-firewall.sh"
+# Every installation/re-install starts from the independent emergency CLOSED
+# state; forwarding is opened only later by the atomic acceptance protocol.
+"$ROOT/scripts/atomic-safety-gate.sh" boot-close
 
 install -m 0644 "$ROOT/config/sysctl/99-nova-routing.conf" /etc/sysctl.d/99-nova-routing.conf
 sysctl -p /etc/sysctl.d/99-nova-routing.conf >/dev/null
