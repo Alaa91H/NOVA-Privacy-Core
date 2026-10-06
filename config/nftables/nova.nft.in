@@ -1,5 +1,7 @@
 #!/usr/sbin/nft -f
 
+@@EMERGENCY_GUARD_BLOCK@@
+
 destroy table inet nova
 
 table inet nova {
