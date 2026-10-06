@@ -14,10 +14,10 @@ acquire_nova_lock
 if [[ -r "$NOVA_ETC/nova.env" ]]; then
   load_runtime
   if [[ "${NOVA_TRAFFIC_GATE:-closed}" == "open" &&
-        -x "$NOVA_INSTALL_ROOT/scripts/render-firewall.sh" ]]; then
+        -x "$NOVA_INSTALL_ROOT/scripts/atomic-safety-gate.sh" ]]; then
     log "existing production node detected; closing protected forwarding before upgrade"
-    write_runtime_kv NOVA_TRAFFIC_GATE closed
-    NOVA_TRAFFIC_GATE=closed "$NOVA_INSTALL_ROOT/scripts/render-firewall.sh"
+    "$NOVA_INSTALL_ROOT/scripts/atomic-safety-gate.sh" close installer-upgrade
+    load_runtime
   fi
 fi
 
