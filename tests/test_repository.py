@@ -153,9 +153,11 @@ def test_forwarding_enabled_only_after_firewall():
     installer = read("scripts/install-firewall.sh")
     assert "net.ipv4.ip_forward = 1" not in hardening
     assert "net.ipv4.ip_forward = 1" in routing
-    fw_pos = installer.index('"$ROOT/scripts/render-firewall.sh"')
+    gate_pos = installer.index('atomic-safety-gate.sh" boot-close')
     route_pos = installer.index("99-nova-routing.conf")
-    assert fw_pos < route_pos, "packet forwarding must be enabled only after firewall load"
+    assert gate_pos < route_pos, "packet forwarding must be enabled only after atomic CLOSED gate"
+    service = read("config/systemd/nova-firewall.service")
+    assert "atomic-safety-gate.sh boot-close" in service
 
 
 def test_installer_order():
@@ -438,18 +440,41 @@ def test_release_self_update_requires_checksum_and_provenance():
 
 def test_activation_gate_has_no_unverified_open_command():
     ctl = read("src/privacyctl")
+    gate = read("scripts/atomic-safety-gate.sh")
     renderer = read("scripts/render-firewall.sh")
     firewall = read("config/nftables/nova.nft.in")
 
     assert "gate status|close" in ctl
     assert "gate status|open" not in ctl
-    assert "recent_management_handshake" in ctl
-    assert "/var/run/reboot-required" in ctl
-    assert "verify-leaks.sh" in ctl
-    assert "rollback_activation" in ctl
-    assert "NOVA_TRAFFIC_GATE open" in ctl
-    assert "TRAFFIC_GATE_DROP" in renderer
-    assert "@@TRAFFIC_GATE_DROP@@" in firewall
+    assert 'atomic-safety-gate.sh" open interactive' in ctl
+    assert "rollback_activation" not in ctl
+    assert "NOVA_TRAFFIC_GATE open" not in ctl
+
+    for marker in (
+        "recent_management_handshake",
+        "/var/run/reboot-required",
+        "deep_preopen_verify",
+        "gate.pending",
+        "schedule_deadman",
+        "emergency_kernel_close",
+        "NOVA_EMERGENCY_KILLSWITCH",
+        "NOVA_GATE_OPEN_",
+        "FIREWALL_DIGEST",
+        "watchdog()",
+        "seal_valid",
+        "systemd-analyze verify",
+        "unbound-checkconf",
+        "awg-quick strip",
+        "package_manager_idle",
+        "storage_ready",
+    ):
+        assert marker in gate, marker
+
+    assert "--stage" in renderer
+    assert '"$nft_bin" -c -f "$candidate"' in renderer
+    assert "@@EMERGENCY_GUARD_BLOCK@@" in firewall
+    assert "@@GATE_ACCEPT_COMMENT@@" in firewall
+
 
 def test_bootstrap_is_release_first_and_not_pipe_to_shell():
     bootstrap = read("install.sh")
@@ -467,7 +492,9 @@ def test_privacyctl_is_single_canonical_control_plane():
     assert sum(1 for line in ctl.splitlines() if line == 'case "${1:-}" in') == 1
     assert ctl.count("cmd_health() {") == 1
     assert ctl.count("cmd_activate() {") == 1
-    assert "valid_cidr" in ctl
+    common = read("scripts/lib/common.sh")
+    assert "valid_cidr()" in common
+    assert 'atomic-safety-gate.sh" open interactive' in ctl
 
 
 def test_ubuntu_awg_path_avoids_known_kernel_module_risk():
@@ -485,18 +512,20 @@ def test_ubuntu_awg_path_avoids_known_kernel_module_risk():
 
 def test_verified_reopen_is_centralized_and_rollback_safe():
     helper = read("scripts/reopen-verified.sh")
+    gate = read("scripts/atomic-safety-gate.sh")
     maint = read("scripts/system-maintenance.sh")
     post = read("scripts/postboot-verify.sh")
     release = read("scripts/release-update.sh")
 
-    assert 'live-acceptance.sh" preflight' in helper
-    assert "verify-leaks.sh" in helper
+    assert 'atomic-safety-gate.sh" open automatic' in helper
     assert "NOVA_BOOTSTRAP_SSH_CIDR" in helper
     assert "/var/run/reboot-required" in helper
-    assert "NOVA_TRAFFIC_GATE open" in helper
-    assert "NOVA_TRAFFIC_GATE closed" in helper
-    assert 'live-acceptance.sh" server' in helper
-    assert "rollback()" in helper
+    assert "deep_preopen_verify" in gate
+    assert "verify-leaks.sh" in gate
+    assert "live-acceptance.sh" in gate
+    assert "rollback()" in gate
+    assert "emergency_kernel_close" in gate
+    assert "schedule_deadman" in gate
     assert 'reopen-verified.sh' in maint
     assert 'reopen-verified.sh' in post
     assert 'reopen-verified.sh' in release
@@ -524,6 +553,7 @@ def test_peer_registry_is_data_only():
         "scripts/set-profile.sh",
         "scripts/rotate-peer.sh",
         "src/privacyctl",
+        "scripts/install-firewall.sh",
     ))
     creator = read("scripts/create-peer.sh")
 
@@ -550,15 +580,19 @@ def test_peer_registry_preserves_base64_padding():
 def test_restore_is_always_fail_closed_and_host_revalidated():
     restore = read("scripts/restore.sh")
     assert "Recovery is always fail-closed" in restore
-    assert "NOVA_TRAFFIC_GATE closed" in restore
+    assert 'atomic-safety-gate.sh" close restore-start' in restore
+    assert "NOVA_GATE_TOKEN" in restore
+    assert "NOVA_GATE_TXN_ID" in restore
     assert "NOVA_BOOTSTRAP_SSH_CIDR" in restore
     assert 'recovery_bootstrap_cidr="${NOVA_BOOTSTRAP_SSH_CIDR:-}"' in restore
-    assert 'write_runtime_kv NOVA_BOOTSTRAP_SSH_CIDR "$recovery_bootstrap_cidr"' in restore
+    assert "write_runtime_batch" in restore
     assert "install-awg.sh" in restore
     assert "configure-memory.sh" in restore
     assert "install-automation.sh" in restore
-    assert "live-acceptance.sh" in restore
+    assert "load_runtime" in restore
+    assert 'source "$NOVA_ETC/nova.env"' not in restore
     assert "privacyctl activate" in restore
+
 
 def test_github_cli_attestation_path_is_official_and_pinned():
     helper = read("scripts/install-github-cli.sh")
@@ -590,6 +624,105 @@ def test_github_cli_attestation_path_is_official_and_pinned():
         assert "attestation verify --help | grep" not in text
     assert "scripts/install-github-cli.sh" in smoke
     assert " gh " not in smoke.split("apt-get install", 1)[1].splitlines()[1] if "apt-get install" in smoke else True
+
+
+def test_runtime_and_awg_state_are_data_only():
+    common = read("scripts/lib/common.sh")
+    bootstrap = read("scripts/bootstrap.sh")
+    restore = read("scripts/restore.sh")
+    awg = read("scripts/configure-awg.sh")
+
+    assert 'source "$runtime"' not in common
+    assert 'source "$runtime"' not in bootstrap
+    assert 'source "$NOVA_ETC/nova.env"' not in restore
+    assert 'source "$params"' not in awg
+    assert "unapproved runtime key" in common
+    assert "duplicate runtime key" in common
+    assert "unapproved/duplicate AWG parameter" in awg
+    assert "runtime state validation failed" in common
+    assert "AWG parameter validation failed" in awg
+    assert "NOVA_NFT_BIN" not in common[common.index("allowed={"):common.index("seen=set()", common.index("allowed={"))]
+
+
+def test_runtime_writes_are_fsync_atomic():
+    common = read("scripts/lib/common.sh")
+    assert "write_runtime_batch()" in common
+    assert "os.fsync" in common
+    assert "os.replace" in common
+    assert "O_DIRECTORY" in common
+    assert "tempfile.mkstemp" in common
+
+
+def test_atomic_gate_boot_watchdog_and_deadman():
+    gate = read("scripts/atomic-safety-gate.sh")
+    fw_unit = read("config/systemd/nova-firewall.service")
+    wd_unit = read("config/systemd/nova-gate-watchdog.service")
+    wd_timer = read("config/systemd/nova-gate-watchdog.timer")
+    automation = read("scripts/install-automation.sh")
+
+    assert "atomic-safety-gate.sh boot-close" in fw_unit
+    assert "NOVA_EMERGENCY_KILLSWITCH" in gate
+    assert "nova_emergency" in gate
+    assert "gate.pending" in gate
+    assert "systemd-run" in gate
+    assert "deadman()" in gate
+    assert "watchdog()" in gate
+    assert "FIREWALL_DIGEST" in gate
+    assert "nft --stateless list table inet nova" in gate
+    assert "OnUnitActiveSec=10s" in wd_timer
+    assert "AccuracySec=1s" in wd_timer
+    assert "CapabilityBoundingSet=CAP_NET_ADMIN" in wd_unit
+    assert "ProtectSystem=strict" in wd_unit
+    assert "nova-gate-watchdog.timer" in automation
+
+
+def test_mutations_close_before_change_and_reaccept():
+    paths = (
+        "scripts/create-peer.sh",
+        "scripts/revoke-peer.sh",
+        "scripts/rotate-peer.sh",
+        "scripts/set-profile.sh",
+        "scripts/update-doh-ips.sh",
+        "scripts/system-maintenance.sh",
+        "scripts/release-update.sh",
+    )
+    for path in paths:
+        text = read(path)
+        assert "atomic-safety-gate.sh" in text, path
+        assert "close " in text, path
+    for path in (
+        "scripts/create-peer.sh",
+        "scripts/revoke-peer.sh",
+        "scripts/rotate-peer.sh",
+        "scripts/set-profile.sh",
+        "scripts/update-doh-ips.sh",
+        "scripts/system-maintenance.sh",
+        "scripts/release-update.sh",
+    ):
+        assert "reopen-verified.sh" in read(path), path
+
+
+def test_apt_upgrade_acceptance_contract_is_consistent():
+    live = read("scripts/live-acceptance.sh")
+    start = live.index("automation_ready() {")
+    end = live.index("independent_upgrader_disabled() {", start)
+    automation = live[start:end]
+    assert "apt-daily.timer" in automation
+    assert "apt-daily-upgrade.timer" not in automation
+    assert "apt-daily-upgrade.timer" in live[live.index("independent_upgrader_disabled() {"):]
+
+
+def test_firewall_open_is_token_bound_and_staged():
+    renderer = read("scripts/render-firewall.sh")
+    template = read("config/nftables/nova.nft.in")
+    assert "NOVA_GATE_TOKEN" in renderer
+    assert "^[a-f0-9]{32}$" in renderer
+    assert "NOVA_GATE_OPEN_" in renderer
+    assert "NOVA_EMERGENCY_KILLSWITCH" in renderer
+    assert "--stage" in renderer
+    assert 'nft -c -f' in renderer or '"$nft_bin" -c -f' in renderer
+    assert "@@EMERGENCY_GUARD_BLOCK@@" in template
+    assert "@@GATE_ACCEPT_COMMENT@@" in template
 
 def test_version():
     version = read("VERSION").strip()
@@ -642,6 +775,12 @@ def main():
         test_peer_registry_preserves_base64_padding,
         test_restore_is_always_fail_closed_and_host_revalidated,
         test_github_cli_attestation_path_is_official_and_pinned,
+        test_runtime_and_awg_state_are_data_only,
+        test_runtime_writes_are_fsync_atomic,
+        test_atomic_gate_boot_watchdog_and_deadman,
+        test_mutations_close_before_change_and_reaccept,
+        test_apt_upgrade_acceptance_contract_is_consistent,
+        test_firewall_open_is_token_bound_and_staged,
         test_version,
     ]
     for test in tests:
