@@ -80,7 +80,8 @@ for n,raw in enumerate(p.read_text(encoding="utf-8",errors="strict").splitlines(
 PY
   then
     rm -f "$parsed"
-    die "runtime state validation failed"
+    warn "runtime state validation failed"
+    return 1
   fi
 
   while IFS= read -r -d '' key && IFS= read -r -d '' value; do
